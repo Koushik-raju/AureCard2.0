@@ -587,57 +587,30 @@ function TaskRow({
           className={cn("size-3.5 transition-transform", !expanded && "-rotate-90")}
         />
       </button>
-      <span className="relative flex items-center">
-        <span className={cn("flex items-center", !selected && "group-hover:opacity-0")}>
-          <button
-            type="button"
-            onClick={() => onOpenCell("status", task.status)}
-            disabled={disabled}
-            aria-haspopup="menu"
-            aria-expanded={openCell === "status"}
-            aria-label={`Change status, currently ${getStatusLabel(task.status)}`}
-            title={getStatusLabel(task.status)}
-            className={cn(
-              "flex size-4 shrink-0 items-center justify-center rounded-sm border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60",
-              statusBox(task.status),
-              task.status !== "done" && "hover:border-muted-foreground/70"
-            )}
-          >
-            {task.status === "done" ? <Check className="size-3" strokeWidth={3} /> : null}
-          </button>
-        </span>
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onToggleSelect}
-          aria-label={`Select ${task.title}`}
-          title="Select for bulk actions"
+      <span className="flex items-center">
+        <button
+          type="button"
+          onClick={() => onOpenCell("status", task.status)}
+          disabled={disabled}
+          aria-haspopup="menu"
+          aria-expanded={openCell === "status"}
+          aria-label={`Change status, currently ${getStatusLabel(task.status)}`}
+          title={getStatusLabel(task.status)}
           className={cn(
-            "absolute left-0 top-1/2 size-4 -translate-y-1/2 shrink-0 accent-primary transition-opacity focus-visible:opacity-100",
-            selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+            "flex size-4 shrink-0 items-center justify-center rounded-sm border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60",
+            statusBox(task.status),
+            task.status !== "done" && "hover:border-muted-foreground/70"
           )}
-        />
+        >
+          {task.status === "done" ? <Check className="size-3" strokeWidth={3} /> : null}
+        </button>
       </span>
 
       <CellShell
         open={openCell === "status"}
         onClose={onCloseCell}
         display={
-      <span className="flex min-w-0 items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onOpenCell("status", task.status)}
-          disabled={disabled}
-          aria-label={`Change status, currently ${getStatusLabel(task.status)}`}
-          title={getStatusLabel(task.status)}
-          className={cn(
-            "flex size-4 shrink-0 items-center justify-center rounded-full border-2 transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            statusBox(task.status)
-          )}
-        >
-          {task.status === "done" ? <Check className="size-2.5 text-white" strokeWidth={4} /> : null}
-        </button>
-      <span className="min-w-0 flex-1">
+      <span className="min-w-0">
         {renaming ? (
           <form
             className="flex min-w-0 items-center gap-1"
@@ -715,7 +688,6 @@ function TaskRow({
             </span>
           </span>
         )}
-      </span>
       </span>
         }
         editor={
@@ -887,6 +859,23 @@ function TaskRow({
       </div>
 
       <span className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-lg border border-border bg-card/95 px-1 py-0.5 opacity-0 shadow-sm backdrop-blur transition-opacity focus-within:opacity-100 group-hover:opacity-100 max-sm:hidden">
+        <button
+          type="button"
+          onClick={onToggleSelect}
+          aria-pressed={selected}
+          title={selected ? "Deselect (clear from bulk actions)" : "Select for bulk actions"}
+          aria-label={selected ? `Deselect ${task.title}` : `Select ${task.title}`}
+          className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span
+            className={cn(
+              "flex size-3.5 items-center justify-center rounded-sm border",
+              selected ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
+            )}
+          >
+            {selected ? <Check className="size-2.5" strokeWidth={3} /> : null}
+          </span>
+        </button>
         <button
           type="button"
           onClick={() => {
