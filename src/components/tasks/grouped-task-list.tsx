@@ -546,59 +546,63 @@ function TaskRow({
               className="h-7 min-w-0 flex-1 rounded-md border border-input bg-transparent px-1.5 text-sm outline-none focus-visible:border-ring"
             />
           </form>
-        ) : linkToTask ? (
-          <Link
-            href={`/tasks/${task.id}`}
-            className="block max-w-full truncate text-sm leading-snug hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-          >
-            <span className={cn(task.status === "done" && "text-muted-foreground line-through")}>
-              {task.title}
-            </span>
-          </Link>
         ) : (
-          <span className={cn("block truncate text-sm", task.status === "done" && "text-muted-foreground line-through")}>
-            {task.title}
-          </span>
-        )}
-        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span className="truncate">
-            {[projectName, spaceName].filter(Boolean).join(" · ")}
-          </span>
-          {subtaskCount > 0 ? (
-            <button
-              type="button"
-              onClick={() => setExpanded((e) => !e)}
-              aria-expanded={expanded}
-              title={expanded ? "Collapse subtasks" : "Expand subtasks"}
-              className="inline-flex shrink-0 items-center gap-1 rounded px-0.5 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <ListTodo className="size-3" />
-              {subtaskCount}
-            </button>
-          ) : null}
-          {task.tags && task.tags.length > 0 ? (
-            <span className="flex min-w-0 items-center gap-1">
-              {task.tags.slice(0, 2).map((t) => (
-                <TagPill key={t} tag={t} />
-              ))}
-              {task.tags.length > 2 ? (
-                <span className="shrink-0">+{task.tags.length - 2}</span>
+          <span className="flex min-w-0 items-baseline gap-2">
+            {linkToTask ? (
+              <Link
+                href={`/tasks/${task.id}`}
+                className="min-w-0 flex-1 truncate text-sm leading-snug hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+              >
+                <span className={cn(task.status === "done" && "text-muted-foreground line-through")}>
+                  {task.title}
+                </span>
+              </Link>
+            ) : (
+              <span className={cn("min-w-0 flex-1 truncate text-sm", task.status === "done" && "text-muted-foreground line-through")}>
+                {task.title}
+              </span>
+            )}
+            <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-normal text-muted-foreground/70">
+              <span className="truncate">
+                {[projectName, spaceName].filter(Boolean).join(" · ")}
+              </span>
+              {subtaskCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setExpanded((e) => !e)}
+                  aria-expanded={expanded}
+                  title={expanded ? "Collapse subtasks" : "Expand subtasks"}
+                  className="inline-flex shrink-0 items-center gap-0.5 rounded px-0.5 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <ListTodo className="size-3" />
+                  {subtaskCount}
+                </button>
+              ) : null}
+              {task.tags && task.tags.length > 0 ? (
+                <span className="flex min-w-0 items-center gap-1">
+                  {task.tags.slice(0, 2).map((t) => (
+                    <TagPill key={t} tag={t} />
+                  ))}
+                  {task.tags.length > 2 ? (
+                    <span className="shrink-0">+{task.tags.length - 2}</span>
+                  ) : null}
+                </span>
+              ) : null}
+              {attachmentCount > 0 ? (
+                <span className="inline-flex shrink-0 items-center gap-0.5" title={`${attachmentCount} attachments`}>
+                  <Paperclip className="size-3" />
+                  {attachmentCount}
+                </span>
+              ) : null}
+              {commentCount > 0 ? (
+                <span className="inline-flex shrink-0 items-center gap-0.5" title={`${commentCount} comments`}>
+                  <MessageSquare className="size-3" />
+                  {commentCount}
+                </span>
               ) : null}
             </span>
-          ) : null}
-          {attachmentCount > 0 ? (
-            <span className="inline-flex shrink-0 items-center gap-0.5" title={`${attachmentCount} attachments`}>
-              <Paperclip className="size-3" />
-              {attachmentCount}
-            </span>
-          ) : null}
-          {commentCount > 0 ? (
-            <span className="inline-flex shrink-0 items-center gap-0.5" title={`${commentCount} comments`}>
-              <MessageSquare className="size-3" />
-              {commentCount}
-            </span>
-          ) : null}
-        </span>
+          </span>
+        )}
       </span>
 
       <CellShell
