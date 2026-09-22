@@ -30,6 +30,8 @@ type GroupedTaskListProps = {
   itemsByTask?: Record<string, TaskItem[]>;
   linkToTask?: boolean;
   defaultExpanded?: boolean;
+  /** Statuses that start collapsed (e.g. done). Defaults to ["done"]. */
+  collapsedByDefault?: TaskStatus[];
   attachmentCounts?: Map<string, number>;
   commentCounts?: Map<string, number>;
   /** Context for the quick-add row when a group can't provide its own. */
@@ -52,6 +54,7 @@ export function GroupedTaskList({
   itemsByTask,
   linkToTask = true,
   defaultExpanded = true,
+  collapsedByDefault = ["done"],
   attachmentCounts,
   commentCounts,
   defaultSpaceId,
@@ -59,7 +62,9 @@ export function GroupedTaskList({
   defaultListId,
 }: GroupedTaskListProps) {
   const router = useRouter();
-  const [collapsed, setCollapsed] = useState<Partial<Record<TaskStatus, boolean>>>({});
+  const [collapsed, setCollapsed] = useState<Partial<Record<TaskStatus, boolean>>>(() =>
+    Object.fromEntries(collapsedByDefault.map((s) => [s, true]))
+  );
   const [patches, setPatches] = useState<Record<string, TaskPatch>>({});
   const [selected, setSelected] = useState<string[]>([]);
   const [sort, setSort] = useState<SortKey>("manual");
@@ -514,7 +519,10 @@ function TaskRow({
         role="row"
         className="grid grid-cols-[32px_minmax(0,1fr)_128px_128px_110px_104px_150px] items-center gap-2 px-3 py-2"
       >
-      <span className="flex items-center gap-1.5">
+      <span className="relative flex items-center">
+        <span className={cn("flex items-center", !selected && "group-hover:opacity-0")}>
+          <TaskCheckbox taskId={task.id} status={task.status} />
+        </span>
         <input
           type="checkbox"
           checked={selected}
@@ -522,13 +530,10 @@ function TaskRow({
           aria-label={`Select ${task.title}`}
           title="Select for bulk actions"
           className={cn(
-            "size-4 shrink-0 accent-primary transition-opacity focus-visible:opacity-100",
-            selected
-              ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-sm:opacity-100"
+            "absolute left-0 top-1/2 size-4 -translate-y-1/2 shrink-0 accent-primary transition-opacity focus-visible:opacity-100",
+            selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
           )}
         />
-        <TaskCheckbox taskId={task.id} status={task.status} />
       </span>
 
       <span className="min-w-0">
@@ -897,6 +902,7 @@ function TaskRow({
                     {sub.title}
                   </span>
                   {sub.assignee ? <AssigneeAvatar name={sub.assignee} size="sm" /> : null}
+                  {sub.priority ? <PriorityFlag priority={sub.priority} /> : null}
                   {sub.dueDate ? (
                     <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
                       {formatShortDate(sub.dueDate)}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useId, createContext, useContext } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition, useId, createContext, useContext } from "react";
 import { useRouter } from "next/navigation";
 import { MoreHorizontal, Pencil, Trash2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,27 +21,62 @@ export function Dropdown({
 }) {
   const [open, setOpen] = useState(false);
   const id = useId();
+  const triggerRef = useRef<HTMLSpanElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const close = () => setOpen(false);
+
+  const position = useCallback(() => {
+    const menu = menuRef.current;
+    const trigger = triggerRef.current;
+    if (!menu || !trigger) return;
+    const r = trigger.getBoundingClientRect();
+    if (r.bottom + 320 > window.innerHeight && r.top > 340) {
+      menu.style.top = "";
+      menu.style.bottom = `${Math.max(8, window.innerHeight - r.top + 4)}px`;
+    } else {
+      menu.style.bottom = "";
+      menu.style.top = `${r.bottom + 4}px`;
+    }
+    if (align === "right") {
+      menu.style.left = "";
+      menu.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
+    } else {
+      menu.style.right = "";
+      menu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - 200))}px`;
+    }
+    menu.style.visibility = "visible";
+  }, [align]);
+
+  useEffect(() => {
+    if (!open) return;
+    position();
+    window.addEventListener("scroll", position, true);
+    window.addEventListener("resize", position);
+    return () => {
+      window.removeEventListener("scroll", position, true);
+      window.removeEventListener("resize", position);
+    };
+  }, [open, position]);
+
   return (
     <DropdownContext.Provider value={{ close }}>
-      <span className="relative inline-flex">
+      <span ref={triggerRef} className="relative inline-flex">
         <span onClick={() => setOpen((o) => !o)}>{trigger}</span>
-        {open ? (
-          <>
-            <div className="fixed inset-0 z-40" onClick={close} aria-hidden="true" />
-            <div
-              role="menu"
-              id={id}
-              className={cn(
-                "absolute top-full z-50 mt-1 min-w-40 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg",
-                align === "right" ? "right-0" : "left-0"
-              )}
-            >
-              {children}
-            </div>
-          </>
-        ) : null}
       </span>
+      {open ? (
+        <>
+          <div className="fixed inset-0 z-40" onClick={close} aria-hidden="true" />
+          <div
+            ref={menuRef}
+            role="menu"
+            id={id}
+            style={{ width: 192, maxHeight: 320, overflowY: "auto", visibility: "hidden" }}
+            className="fixed z-50 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg"
+          >
+            {children}
+          </div>
+        </>
+      ) : null}
     </DropdownContext.Provider>
   );
 }

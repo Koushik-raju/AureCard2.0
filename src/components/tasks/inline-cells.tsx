@@ -1,9 +1,13 @@
 "use client";
 
+import { useCallback, useEffect, useRef } from "react";
 import { Check } from "lucide-react";
-import { cn } from "@/lib/utils";
 
-/** ClickUp-style inline cell: click to open a popover editor, click away to close. */
+/**
+ * ClickUp-style inline cell: click to open a popover editor.
+ * The popover is viewport-fixed (measured from the trigger) so it floats
+ * above scroll containers instead of being clipped inside them.
+ */
 export function CellShell({
   open,
   onClose,
@@ -17,20 +21,58 @@ export function CellShell({
   editor: React.ReactNode;
   wide?: boolean;
 }) {
-  if (!open) return <span className="min-w-0">{display}</span>;
+  const triggerRef = useRef<HTMLSpanElement>(null);
+  const menuRef = useRef<HTMLSpanElement>(null);
+  const width = wide ? 224 : 176;
+
+  const position = useCallback(() => {
+    const menu = menuRef.current;
+    const trigger = triggerRef.current;
+    if (!menu || !trigger) return;
+    const r = trigger.getBoundingClientRect();
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+    menu.style.left = `${left}px`;
+    menu.style.width = `${width}px`;
+    // Open upward when there is no room below.
+    if (r.bottom + 320 > window.innerHeight && r.top > 340) {
+      menu.style.top = "";
+      menu.style.bottom = `${Math.max(8, window.innerHeight - r.top + 4)}px`;
+    } else {
+      menu.style.bottom = "";
+      menu.style.top = `${r.bottom + 4}px`;
+    }
+    menu.style.visibility = "visible";
+  }, [width]);
+
+  useEffect(() => {
+    if (!open) return;
+    position();
+    window.addEventListener("scroll", position, true);
+    window.addEventListener("resize", position);
+    return () => {
+      window.removeEventListener("scroll", position, true);
+      window.removeEventListener("resize", position);
+    };
+  }, [open, position]);
+
   return (
-    <span className="relative min-w-0">
-      {display}
-      <span className="fixed inset-0 z-10" onClick={onClose} aria-hidden="true" />
-      <span
-        className={cn(
-          "absolute left-0 top-full z-20 mt-1 rounded-lg border border-border bg-popover p-1.5 shadow-lg",
-          wide ? "w-56" : "w-44"
-        )}
-      >
-        {editor}
+    <>
+      <span ref={triggerRef} className="min-w-0">
+        {display}
       </span>
-    </span>
+      {open ? (
+        <>
+          <span className="fixed inset-0 z-40" onClick={onClose} aria-hidden="true" />
+          <span
+            ref={menuRef}
+            className="fixed z-50 rounded-lg border border-border bg-popover p-1.5 shadow-lg"
+            style={{ width, maxHeight: 320, overflowY: "auto", visibility: "hidden" }}
+          >
+            {editor}
+          </span>
+        </>
+      ) : null}
+    </>
   );
 }
 

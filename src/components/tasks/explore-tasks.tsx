@@ -89,9 +89,6 @@ export function ExploreTasks({ tasks, projects, spaces, counts, itemsByTask, cur
       });
   }, [tasks, status, owner, currentUserEmail, spaceId, projectId, query, overrides]);
 
-  const openTasks = useMemo(() => filtered.filter((t) => t.status !== "done"), [filtered]);
-  const doneTasks = useMemo(() => filtered.filter((t) => t.status === "done"), [filtered]);
-
   // Board view exists only for the "All" section; picking a status tab
   // drops back to the list so per-status boards never appear.
   const effectiveView: ViewMode = status === "all" ? view : "list";
@@ -247,20 +244,15 @@ export function ExploreTasks({ tasks, projects, spaces, counts, itemsByTask, cur
       />
 
       {effectiveView === "list" ? (
-        <>
-          <h2 className="mt-8 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            Open · {openTasks.length}
-          </h2>
-          <GroupedTaskList tasks={openTasks} projectName={projectName} spaceName={spaceName} itemsByTask={itemsByTask} attachmentCounts={attachmentCounts} commentCounts={commentCounts} />
-          {doneTasks.length > 0 ? (
-            <>
-              <h2 className="mt-10 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Done · {doneTasks.length}
-              </h2>
-              <GroupedTaskList tasks={doneTasks} projectName={projectName} spaceName={spaceName} itemsByTask={itemsByTask} attachmentCounts={attachmentCounts} commentCounts={commentCounts} defaultExpanded={false} />
-            </>
-          ) : null}
-        </>
+        <GroupedTaskList
+          tasks={filtered}
+          projectName={projectName}
+          spaceName={spaceName}
+          itemsByTask={itemsByTask}
+          attachmentCounts={attachmentCounts}
+          commentCounts={commentCounts}
+          collapsedByDefault={["done"]}
+        />
       ) : (
         <TaskBoardView tasks={filtered} projectName={projectName} spaceName={spaceName} itemsByTask={itemsByTask} docTitle={docTitle} />
       )}
