@@ -24,6 +24,25 @@ export function Dropdown({
   const triggerRef = useRef<HTMLSpanElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const close = () => setOpen(false);
+  const closeRef = useRef(close);
+  useEffect(() => {
+    closeRef.current = close;
+  });
+
+  // One menu at a time: announce when this opens, close when another does.
+  useEffect(() => {
+    if (open) {
+      window.dispatchEvent(new CustomEvent("atlas:menu-opened", { detail: { id } }));
+    }
+  }, [open, id]);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { id?: string } | undefined;
+      if (detail && detail.id !== id) closeRef.current();
+    };
+    window.addEventListener("atlas:menu-opened", handler);
+    return () => window.removeEventListener("atlas:menu-opened", handler);
+  }, [id]);
 
   const position = useCallback(() => {
     const menu = menuRef.current;

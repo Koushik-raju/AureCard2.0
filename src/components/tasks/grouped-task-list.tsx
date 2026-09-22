@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CalendarDays, Check, ChevronDown, Flag, ListTodo, MessageSquare, Paperclip, Pencil, Plus, UserRound, X } from "lucide-react";
@@ -89,6 +89,17 @@ export function GroupedTaskList({
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  // An independent ⋯ menu opening anywhere closes the inline cell menu
+  // (cell-originated events are ignored — openCell is already exclusive).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { cell?: boolean } | undefined;
+      if (detail && !detail.cell) setOpenCell(null);
+    };
+    window.addEventListener("atlas:menu-opened", handler);
+    return () => window.removeEventListener("atlas:menu-opened", handler);
+  }, []);
 
   const viewTasks = useMemo(
     () =>

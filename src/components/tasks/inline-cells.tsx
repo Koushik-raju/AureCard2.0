@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Check, Plus, X } from "lucide-react";
 import { parseAssignees } from "@/lib/assignees";
 import { AssigneeAvatar } from "./hues";
@@ -25,7 +25,19 @@ export function CellShell({
 }) {
   const triggerRef = useRef<HTMLSpanElement>(null);
   const menuRef = useRef<HTMLSpanElement>(null);
+  const menuId = useId();
   const width = wide ? 224 : 176;
+
+  // Announce when this opens so independent ⋯ Dropdowns close.
+  // (Cell menus are already exclusive via the parent's single openCell state,
+  // so this shell only broadcasts — it never listens.)
+  useEffect(() => {
+    if (open) {
+      window.dispatchEvent(
+        new CustomEvent("atlas:menu-opened", { detail: { id: menuId, cell: true } })
+      );
+    }
+  }, [open, menuId]);
 
   const position = useCallback(() => {
     const menu = menuRef.current;
