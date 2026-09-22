@@ -114,14 +114,9 @@ export function GroupedTaskList({
   })).filter((group) => group.items.length > 0);
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
-  const visibleIds = useMemo(() => viewTasks.map((t) => t.id), [viewTasks]);
 
   function toggleSelect(id: string) {
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  }
-
-  function toggleSelectAll() {
-    setSelected((prev) => (prev.length === visibleIds.length ? [] : visibleIds));
   }
 
   function commit(taskId: string, patch: TaskPatch) {
@@ -216,8 +211,6 @@ export function GroupedTaskList({
     );
   }
 
-  const allSelected = selected.length > 0 && selected.length === visibleIds.length;
-
   return (
     <div className="mt-6">
       <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -247,16 +240,7 @@ export function GroupedTaskList({
             role="row"
             className="grid grid-cols-[32px_minmax(0,1fr)_128px_128px_110px_104px_150px] items-center gap-2 border-b border-border bg-muted/50 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
           >
-            <input
-              type="checkbox"
-              checked={allSelected}
-              ref={(el) => {
-                if (el) el.indeterminate = selected.length > 0 && !allSelected;
-              }}
-              onChange={toggleSelectAll}
-              aria-label="Select all tasks"
-              className="size-4 accent-primary"
-            />
+            <span aria-hidden="true" />
             <span>Task</span>
             <span>Status</span>
             <span>Assignee</span>
