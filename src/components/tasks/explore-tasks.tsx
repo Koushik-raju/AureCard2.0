@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { LayoutGrid, List, Search } from "lucide-react";
+import { LayoutGrid, List, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Project, Space, Task, TaskItem, TaskStatus } from "@/lib/types";
 import { useTaskStatusOverrides } from "@/lib/session-store";
@@ -34,6 +34,8 @@ type ExploreTasksProps = {
   itemsByTask?: Record<string, TaskItem[]>;
   currentUserEmail?: string;
   docTitle?: Map<string, string>;
+  attachmentCounts?: Map<string, number>;
+  commentCounts?: Map<string, number>;
 };
 
 const OWNER_TABS: { key: OwnerFilter; label: string }[] = [
@@ -42,7 +44,7 @@ const OWNER_TABS: { key: OwnerFilter; label: string }[] = [
   { key: "waiting", label: "Waiting on" },
 ];
 
-export function ExploreTasks({ tasks, projects, spaces, counts, itemsByTask, currentUserEmail, docTitle }: ExploreTasksProps) {
+export function ExploreTasks({ tasks, projects, spaces, counts, itemsByTask, currentUserEmail, docTitle, attachmentCounts, commentCounts }: ExploreTasksProps) {
   const [view, setView] = useState<ViewMode>("list");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [owner, setOwner] = useState<OwnerFilter>("all");
@@ -231,24 +233,107 @@ export function ExploreTasks({ tasks, projects, spaces, counts, itemsByTask, cur
         </div>
       </div>
 
+      <ActiveFilterPills
+        status={status}
+        owner={owner}
+        spaceName={spaceId === "all" ? null : (spaceName.get(spaceId) ?? null)}
+        projectName={projectId === "all" ? null : (projectName.get(projectId) ?? null)}
+        query={query.trim()}
+        onClearStatus={() => pickStatus("all")}
+        onClearOwner={() => setOwner("all")}
+        onClearSpace={() => setSpaceId("all")}
+        onClearProject={() => setProjectId("all")}
+        onClearQuery={() => setQuery("")}
+      />
+
       {effectiveView === "list" ? (
         <>
           <h2 className="mt-8 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
             Open · {openTasks.length}
           </h2>
-          <GroupedTaskList tasks={openTasks} projectName={projectName} spaceName={spaceName} itemsByTask={itemsByTask} />
+          <GroupedTaskList tasks={openTasks} projectName={projectName} spaceName={spaceName} itemsByTask={itemsByTask} attachmentCounts={attachmentCounts} commentCounts={commentCounts} />
           {doneTasks.length > 0 ? (
             <>
               <h2 className="mt-10 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
                 Done · {doneTasks.length}
               </h2>
-              <GroupedTaskList tasks={doneTasks} projectName={projectName} spaceName={spaceName} itemsByTask={itemsByTask} defaultExpanded={false} />
+              <GroupedTaskList tasks={doneTasks} projectName={projectName} spaceName={spaceName} itemsByTask={itemsByTask} attachmentCounts={attachmentCounts} commentCounts={commentCounts} defaultExpanded={false} />
             </>
           ) : null}
         </>
       ) : (
         <TaskBoardView tasks={filtered} projectName={projectName} spaceName={spaceName} itemsByTask={itemsByTask} docTitle={docTitle} />
       )}
+    </div>
+  );
+}
+
+function ActiveFilterPills({
+  status,
+  owner,
+  spaceName,
+  projectName,
+  query,
+  onClearStatus,
+  onClearOwner,
+  onClearSpace,
+  onClearProject,
+  onClearQuery,
+}: {
+  status: StatusFilter;
+  owner: OwnerFilter;
+  spaceName: string | null;
+  projectName: string | null;
+  query: string;
+  onClearStatus: () => void;
+  onClearOwner: () => void;
+  onClearSpace: () => void;
+  onClearProject: () => void;
+  onClearQuery: () => void;
+}) {
+  const pills: { key: string; label: string; value: string; onClear: () => void }[] = [];
+  if (status !== "all") {
+    pills.push({
+      key: "status",
+      label: "Status",
+      value: STATUS_TABS.find((t) => t.key === status)?.label ?? status,
+      onClear: onClearStatus,
+    });
+  }
+  if (owner !== "all") {
+    pills.push({
+      key: "owner",
+      label: "Owner",
+      value: OWNER_TABS.find((t) => t.key === owner)?.label ?? owner,
+      onClear: onClearOwner,
+    });
+  }
+  if (spaceName) pills.push({ key: "space", label: "Space", value: spaceName, onClear: onClearSpace });
+  if (projectName) {
+    pills.push({ key: "project", label: "Project", value: projectName, onClear: onClearProject });
+  }
+  if (query) pills.push({ key: "q", label: "Search", value: `“${query}”`, onClear: onClearQuery });
+
+  if (pills.length === 0) return null;
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-1.5" aria-label="Active filters">
+      {pills.map((pill) => (
+        <span
+          key={pill.key}
+          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/60 py-1 pl-2.5 pr-1 text-xs"
+        >
+          <span className="text-muted-foreground">{pill.label}:</span>
+          <span className="max-w-40 truncate font-medium">{pill.value}</span>
+          <button
+            type="button"
+            onClick={pill.onClear}
+            aria-label={`Clear ${pill.label} filter`}
+            className="rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <X className="size-3" />
+          </button>
+        </span>
+      ))}
     </div>
   );
 }

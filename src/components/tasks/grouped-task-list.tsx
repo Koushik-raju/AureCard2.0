@@ -3,15 +3,19 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ListTodo, Plus, X } from "lucide-react";
+import { CalendarDays, ChevronDown, Flag, ListTodo, MessageSquare, Paperclip, Pencil, Plus, UserRound, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CellInput, CellShell } from "./inline-cells";
+import { AssigneeAvatar, PriorityFlag, TagPill, statusHue } from "./hues";
 import type { Task, TaskItem, TaskPriority, TaskStatus } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
 import { setTaskStatus as setSessionTaskStatus } from "@/lib/session-store";
-import { createTask, deleteTask, updateTask, type EditTaskInput } from "@/lib/mutations";
-import { PriorityDot, formatShortDate } from "./task-visuals";
+import { createTask, deleteTask, deleteTaskItem, updateTask, updateTaskItemDone, type EditTaskInput } from "@/lib/mutations";
+import { formatShortDate } from "./task-visuals";
 import { TaskCheckbox } from "./task-checkbox";
+import { AddSubtask } from "./task-fields";
+import { SubtaskTree } from "./subtask-rows";
+import { TaskMenu } from "@/components/create/entity-menus";
 
 const ORDER: TaskStatus[] = ["todo", "in-progress", "in-review", "done"];
 const PRIORITIES: TaskPriority[] = ["high", "medium", "low"];
@@ -27,6 +31,8 @@ type GroupedTaskListProps = {
   itemsByTask?: Record<string, TaskItem[]>;
   linkToTask?: boolean;
   defaultExpanded?: boolean;
+  attachmentCounts?: Map<string, number>;
+  commentCounts?: Map<string, number>;
   /** Context for the quick-add row when a group can't provide its own. */
   defaultSpaceId?: string;
   defaultProjectId?: string;
@@ -34,19 +40,6 @@ type GroupedTaskListProps = {
 };
 
 type TaskPatch = Omit<EditTaskInput, "id">;
-
-function statusPill(status: TaskStatus): string {
-  switch (status) {
-    case "in-progress":
-      return "bg-blue-500/15 text-blue-700 dark:text-blue-300";
-    case "in-review":
-      return "bg-amber-500/15 text-amber-700 dark:text-amber-300";
-    case "done":
-      return "bg-green-500/15 text-green-700 dark:text-green-300";
-    default:
-      return "bg-muted text-muted-foreground";
-  }
-}
 
 function priorityLabel(p?: TaskPriority): string {
   if (!p) return "—";
@@ -60,6 +53,8 @@ export function GroupedTaskList({
   itemsByTask,
   linkToTask = true,
   defaultExpanded = true,
+  attachmentCounts,
+  commentCounts,
   defaultSpaceId,
   defaultProjectId,
   defaultListId,
@@ -299,6 +294,9 @@ export function GroupedTaskList({
                         projectName={projectName?.get(task.projectId ?? "")}
                         spaceName={spaceName?.get(task.spaceId)}
                         subtaskCount={itemsByTask?.[task.id]?.length ?? 0}
+                        subtasks={itemsByTask?.[task.id] ?? []}
+                        attachmentCount={attachmentCounts?.get(task.id) ?? 0}
+                        commentCount={commentCounts?.get(task.id) ?? 0}
                         selected={selectedSet.has(task.id)}
                         openCell={openCell?.taskId === task.id ? openCell.cell : null}
                         draftCell={draftCell}
@@ -436,6 +434,9 @@ function TaskRow({
   projectName,
   spaceName,
   subtaskCount,
+  subtasks,
+  attachmentCount,
+  commentCount,
   selected,
   openCell,
   draftCell,
@@ -451,6 +452,9 @@ function TaskRow({
   projectName?: string;
   spaceName?: string;
   subtaskCount: number;
+  subtasks: TaskItem[];
+  attachmentCount: number;
+  commentCount: number;
   selected: boolean;
   openCell: CellKind | null;
   draftCell: string;
@@ -461,14 +465,49 @@ function TaskRow({
   onDraftCell: (v: string) => void;
   onCommit: (patch: TaskPatch) => void;
 }) {
+  const router = useRouter();
+  const [expanded, setExpanded] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(task.title);
+  const [, startSubTransition] = useTransition();
+
+  function toggleSubItem(itemId: string, done: boolean) {
+    startSubTransition(async () => {
+      try {
+        await updateTaskItemDone(task.id, itemId, done);
+      } finally {
+        router.refresh();
+      }
+    });
+  }
+
+  function deleteSubItem(itemId: string) {
+    startSubTransition(async () => {
+      try {
+        await deleteTaskItem(task.id, itemId);
+      } finally {
+        router.refresh();
+      }
+    });
+  }
+
+  function submitRename() {
+    const title = renameValue.trim();
+    if (title && title !== task.title) onCommit({ title: title.slice(0, 200) });
+    else setRenaming(false);
+  }
+
   return (
     <li
-      role="row"
       className={cn(
-        "group grid grid-cols-[32px_minmax(0,1fr)_128px_128px_110px_104px_150px] items-center gap-2 px-3 py-2 transition-colors hover:bg-muted/40",
+        "group relative transition-colors hover:bg-muted/40",
         selected && "bg-primary/5 hover:bg-primary/10"
       )}
     >
+      <div
+        role="row"
+        className="grid grid-cols-[32px_minmax(0,1fr)_128px_128px_110px_104px_150px] items-center gap-2 px-3 py-2"
+      >
       <span className="flex items-center gap-1.5">
         <input
           type="checkbox"
@@ -487,7 +526,27 @@ function TaskRow({
       </span>
 
       <span className="min-w-0">
-        {linkToTask ? (
+        {renaming ? (
+          <form
+            className="flex min-w-0 items-center gap-1"
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitRename();
+            }}
+          >
+            <input
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setRenaming(false);
+              }}
+              autoFocus
+              maxLength={200}
+              aria-label="Task title"
+              className="h-7 min-w-0 flex-1 rounded-md border border-input bg-transparent px-1.5 text-sm outline-none focus-visible:border-ring"
+            />
+          </form>
+        ) : linkToTask ? (
           <Link
             href={`/tasks/${task.id}`}
             className="block max-w-full truncate text-sm leading-snug hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
@@ -506,9 +565,37 @@ function TaskRow({
             {[projectName, spaceName].filter(Boolean).join(" · ")}
           </span>
           {subtaskCount > 0 ? (
-            <span className="inline-flex shrink-0 items-center gap-1" title={`${subtaskCount} subtasks`}>
+            <button
+              type="button"
+              onClick={() => setExpanded((e) => !e)}
+              aria-expanded={expanded}
+              title={expanded ? "Collapse subtasks" : "Expand subtasks"}
+              className="inline-flex shrink-0 items-center gap-1 rounded px-0.5 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
               <ListTodo className="size-3" />
               {subtaskCount}
+            </button>
+          ) : null}
+          {task.tags && task.tags.length > 0 ? (
+            <span className="flex min-w-0 items-center gap-1">
+              {task.tags.slice(0, 2).map((t) => (
+                <TagPill key={t} tag={t} />
+              ))}
+              {task.tags.length > 2 ? (
+                <span className="shrink-0">+{task.tags.length - 2}</span>
+              ) : null}
+            </span>
+          ) : null}
+          {attachmentCount > 0 ? (
+            <span className="inline-flex shrink-0 items-center gap-0.5" title={`${attachmentCount} attachments`}>
+              <Paperclip className="size-3" />
+              {attachmentCount}
+            </span>
+          ) : null}
+          {commentCount > 0 ? (
+            <span className="inline-flex shrink-0 items-center gap-0.5" title={`${commentCount} comments`}>
+              <MessageSquare className="size-3" />
+              {commentCount}
             </span>
           ) : null}
         </span>
@@ -524,7 +611,7 @@ function TaskRow({
             disabled={disabled}
             className={cn(
               "inline-flex max-w-full items-center gap-1 truncate rounded-full px-2.5 py-1 text-xs font-medium transition-opacity hover:opacity-80",
-              statusPill(task.status)
+              statusHue(task.status)
             )}
           >
             <span className="truncate">{getStatusLabel(task.status)}</span>
@@ -547,7 +634,7 @@ function TaskRow({
                 <span
                   className={cn(
                     "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium",
-                    statusPill(s)
+                    statusHue(s)
                   )}
                 >
                   {getStatusLabel(s)}
@@ -569,10 +656,17 @@ function TaskRow({
             type="button"
             onClick={() => onOpenCell("assignee", task.assignee ?? "")}
             disabled={disabled}
-            className="block max-w-full truncate rounded-md px-1 py-1 text-left text-[13px] hover:bg-muted"
+            className="flex max-w-full items-center gap-1.5 rounded-md px-1 py-1 text-left text-[13px] hover:bg-muted"
             title={task.assignee || "Set assignee"}
           >
-            {task.assignee || <span className="text-muted-foreground/60">—</span>}
+            {task.assignee ? (
+              <>
+                <AssigneeAvatar name={task.assignee} size="sm" />
+                <span className="truncate">{task.assignee}</span>
+              </>
+            ) : (
+              <UserRound className="size-4 text-muted-foreground/40" aria-label="No assignee" />
+            )}
           </button>
         }
         editor={
@@ -596,7 +690,11 @@ function TaskRow({
             disabled={disabled}
             className="block rounded-md px-1 py-1 text-left text-[13px] tabular-nums hover:bg-muted"
           >
-            {task.dueDate ? formatShortDate(task.dueDate) : <span className="text-muted-foreground/60">—</span>}
+            {task.dueDate ? (
+              formatShortDate(task.dueDate)
+            ) : (
+              <CalendarDays className="size-4 text-muted-foreground/40" aria-label="No due date" />
+            )}
           </button>
         }
         editor={
@@ -620,8 +718,14 @@ function TaskRow({
             disabled={disabled}
             className="flex max-w-full items-center gap-1.5 rounded-md px-1 py-1 text-left text-[13px] hover:bg-muted"
           >
-            <PriorityDot priority={task.priority} />
-            <span className="truncate">{priorityLabel(task.priority)}</span>
+            {task.priority ? (
+              <>
+                <PriorityFlag priority={task.priority} />
+                <span className="truncate">{priorityLabel(task.priority)}</span>
+              </>
+            ) : (
+              <Flag className="size-4 text-muted-foreground/40" aria-label="No priority" />
+            )}
           </button>
         }
         editor={
@@ -633,7 +737,7 @@ function TaskRow({
                 onClick={() => onCommit({ priority: p })}
                 className="flex items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs hover:bg-muted"
               >
-                <PriorityDot priority={p} />
+                <PriorityFlag priority={p} />
                 {priorityLabel(p)}
               </button>
             ))}
@@ -689,6 +793,53 @@ function TaskRow({
           />
         }
       />
+      </div>
+
+      <span className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-lg border border-border bg-card/95 px-1 py-0.5 opacity-0 shadow-sm backdrop-blur transition-opacity focus-within:opacity-100 group-hover:opacity-100 max-sm:hidden">
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={expanded}
+          title={expanded ? "Collapse subtasks" : "Expand subtasks"}
+          aria-label={expanded ? "Collapse subtasks" : "Expand subtasks"}
+          className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Plus className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setRenameValue(task.title);
+            setRenaming(true);
+          }}
+          title="Rename task"
+          aria-label={`Rename ${task.title}`}
+          className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Pencil className="size-3.5" />
+        </button>
+        <TaskMenu taskId={task.id} taskTitle={task.title} />
+      </span>
+
+      {expanded ? (
+        <div className="border-t border-border/60 px-8 py-2">
+          {subtasks.length > 0 ? (
+            <SubtaskTree
+              taskId={task.id}
+              items={subtasks}
+              doneMap={{}}
+              onToggle={(itemId) => {
+                const item = subtasks.find((i) => i.id === itemId);
+                toggleSubItem(itemId, !(item?.done ?? false));
+              }}
+              onDelete={deleteSubItem}
+            />
+          ) : (
+            <p className="py-1 text-xs text-muted-foreground">No subtasks yet.</p>
+          )}
+          <AddSubtask taskId={task.id} />
+        </div>
+      ) : null}
     </li>
   );
 }

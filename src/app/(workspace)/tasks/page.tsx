@@ -8,16 +8,20 @@ import {
   getTaskStatusCounts,
   getTaskItems,
   getDocuments,
+  getTaskAttachments,
+  getComments,
 } from "@/lib/repository";
 
 export default async function TasksPage() {
-  const [tasks, projects, spaces, counts, taskItems, documents, user] = await Promise.all([
+  const [tasks, projects, spaces, counts, taskItems, documents, attachments, comments, user] = await Promise.all([
     getTasks(),
     getProjects(),
     getSpaces(),
     getTaskStatusCounts(),
     getTaskItems(),
     getDocuments(),
+    getTaskAttachments(),
+    getComments(),
     getCurrentUser(),
   ]);
   const itemsByTask: Record<string, import("@/lib/types").TaskItem[]> = {};
@@ -25,6 +29,14 @@ export default async function TasksPage() {
     (itemsByTask[item.taskId] ??= []).push(item);
   }
   const docTitle = new Map(documents.map((d) => [d.id, d.title] as const));
+  const attachmentCounts = new Map<string, number>();
+  for (const a of attachments) {
+    attachmentCounts.set(a.taskId, (attachmentCounts.get(a.taskId) ?? 0) + 1);
+  }
+  const commentCounts = new Map<string, number>();
+  for (const c of comments) {
+    commentCounts.set(c.taskId, (commentCounts.get(c.taskId) ?? 0) + 1);
+  }
   return (
     <div className="mx-auto w-full max-w-7xl px-6 py-10 sm:py-14">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -39,7 +51,7 @@ export default async function TasksPage() {
         <CreateTaskButton spaces={spaces} projects={projects} />
       </header>
       <div className="mt-8">
-        <ExploreTasks tasks={tasks} projects={projects} spaces={spaces} counts={counts} itemsByTask={itemsByTask} currentUserEmail={user?.email} docTitle={docTitle} />
+        <ExploreTasks tasks={tasks} projects={projects} spaces={spaces} counts={counts} itemsByTask={itemsByTask} currentUserEmail={user?.email} docTitle={docTitle} attachmentCounts={attachmentCounts} commentCounts={commentCounts} />
       </div>
     </div>
   );
