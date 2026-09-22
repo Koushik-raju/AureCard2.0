@@ -3,18 +3,17 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CalendarDays, ChevronDown, Flag, ListTodo, MessageSquare, Paperclip, Pencil, Plus, UserRound, X } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, Flag, ListTodo, MessageSquare, Paperclip, Pencil, Plus, UserRound, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CellInput, CellShell } from "./inline-cells";
 import { AssigneeAvatar, PriorityFlag, TagPill, statusHue } from "./hues";
 import type { Task, TaskItem, TaskPriority, TaskStatus } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
 import { setTaskStatus as setSessionTaskStatus } from "@/lib/session-store";
-import { createTask, deleteTask, deleteTaskItem, updateTask, updateTaskItemDone, type EditTaskInput } from "@/lib/mutations";
+import { createTask, createTaskItem, deleteTask, updateTask, updateTaskItemDone, type EditTaskInput } from "@/lib/mutations";
 import { formatShortDate } from "./task-visuals";
 import { TaskCheckbox } from "./task-checkbox";
-import { AddSubtask } from "./task-fields";
-import { SubtaskTree } from "./subtask-rows";
+import { DeleteSubtask } from "./task-fields";
 import { TaskMenu } from "@/components/create/entity-menus";
 
 const ORDER: TaskStatus[] = ["todo", "in-progress", "in-review", "done"];
@@ -311,7 +310,7 @@ export function GroupedTaskList({
                         onCommit={(patch) => commit(task.id, patch)}
                       />
                     ))}
-                    <li className="px-3 py-1">
+                    <li className="group/add px-3 py-1">
                       {addingStatus === status ? (
                         <form
                           className="flex items-center gap-2 py-1.5"
@@ -354,7 +353,7 @@ export function GroupedTaskList({
                             setAddingStatus(status);
                             setAddTitle("");
                           }}
-                          className="flex items-center gap-1.5 rounded-md px-1 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="flex items-center gap-1.5 rounded-md px-1 py-1.5 text-xs text-muted-foreground opacity-0 transition-all hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/add:opacity-100 max-sm:opacity-100"
                         >
                           <Plus className="size-3.5" /> Add task
                         </button>
@@ -469,6 +468,8 @@ function TaskRow({
   const [expanded, setExpanded] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(task.title);
+  const [addingSub, setAddingSub] = useState(false);
+  const [subTitle, setSubTitle] = useState("");
   const [, startSubTransition] = useTransition();
 
   function toggleSubItem(itemId: string, done: boolean) {
@@ -481,20 +482,25 @@ function TaskRow({
     });
   }
 
-  function deleteSubItem(itemId: string) {
-    startSubTransition(async () => {
-      try {
-        await deleteTaskItem(task.id, itemId);
-      } finally {
-        router.refresh();
-      }
-    });
-  }
-
   function submitRename() {
     const title = renameValue.trim();
     if (title && title !== task.title) onCommit({ title: title.slice(0, 200) });
     else setRenaming(false);
+  }
+
+  function submitSubtask() {
+    const title = subTitle.trim();
+    if (!title) return;
+    setSubTitle("");
+    setAddingSub(false);
+    setExpanded(true);
+    startSubTransition(async () => {
+      try {
+        await createTaskItem(task.id, title.slice(0, 200));
+      } finally {
+        router.refresh();
+      }
+    });
   }
 
   return (
@@ -802,10 +808,12 @@ function TaskRow({
       <span className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-lg border border-border bg-card/95 px-1 py-0.5 opacity-0 shadow-sm backdrop-blur transition-opacity focus-within:opacity-100 group-hover:opacity-100 max-sm:hidden">
         <button
           type="button"
-          onClick={() => setExpanded((e) => !e)}
-          aria-expanded={expanded}
-          title={expanded ? "Collapse subtasks" : "Expand subtasks"}
-          aria-label={expanded ? "Collapse subtasks" : "Expand subtasks"}
+          onClick={() => {
+            setAddingSub(true);
+            setExpanded(true);
+          }}
+          title="Add subtask"
+          aria-label={`Add subtask to ${task.title}`}
           className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Plus className="size-3.5" />
@@ -826,22 +834,83 @@ function TaskRow({
       </span>
 
       {expanded ? (
-        <div className="border-t border-border/60 px-8 py-2">
-          {subtasks.length > 0 ? (
-            <SubtaskTree
-              taskId={task.id}
-              items={subtasks}
-              doneMap={{}}
-              onToggle={(itemId) => {
-                const item = subtasks.find((i) => i.id === itemId);
-                toggleSubItem(itemId, !(item?.done ?? false));
+        <div className="border-t border-border/60 bg-muted/20 px-8 py-1.5">
+          {addingSub ? (
+            <form
+              className="flex items-center gap-1.5 py-1"
+              onSubmit={(e) => {
+                e.preventDefault();
+                submitSubtask();
               }}
-              onDelete={deleteSubItem}
-            />
-          ) : (
+            >
+              <Plus className="size-3.5 shrink-0 text-muted-foreground" />
+              <input
+                value={subTitle}
+                onChange={(e) => setSubTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setAddingSub(false);
+                    setSubTitle("");
+                  }
+                }}
+                placeholder="Add subtask… (Enter to save, Esc to cancel)"
+                autoFocus
+                maxLength={200}
+                aria-label="New subtask title"
+                className="h-7 min-w-0 flex-1 rounded-md border border-input bg-transparent px-1.5 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:border-ring"
+              />
+              <button
+                type="submit"
+                disabled={!subTitle.trim()}
+                className="rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground disabled:opacity-50"
+              >
+                Add
+              </button>
+            </form>
+          ) : null}
+          {subtasks.length > 0 ? (
+            <ul className="py-0.5">
+              {subtasks.map((sub) => (
+                <li key={sub.id} className="group/sub flex items-center gap-2 rounded py-1">
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={sub.done}
+                    aria-label={sub.title}
+                    onClick={() => toggleSubItem(sub.id, !sub.done)}
+                    className={cn(
+                      "flex size-3.5 shrink-0 items-center justify-center rounded-sm border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      sub.done
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-muted-foreground/40 hover:border-primary"
+                    )}
+                  >
+                    {sub.done ? <Check className="size-2.5" strokeWidth={3} /> : null}
+                  </button>
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-[13px]",
+                      sub.done && "text-muted-foreground line-through"
+                    )}
+                    title={sub.title}
+                  >
+                    {sub.title}
+                  </span>
+                  {sub.assignee ? <AssigneeAvatar name={sub.assignee} size="sm" /> : null}
+                  {sub.dueDate ? (
+                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                      {formatShortDate(sub.dueDate)}
+                    </span>
+                  ) : null}
+                  <span className="opacity-0 transition-opacity focus-within:opacity-100 group-hover/sub:opacity-100">
+                    <DeleteSubtask taskId={task.id} itemId={sub.id} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : addingSub ? null : (
             <p className="py-1 text-xs text-muted-foreground">No subtasks yet.</p>
           )}
-          <AddSubtask taskId={task.id} />
         </div>
       ) : null}
     </li>
