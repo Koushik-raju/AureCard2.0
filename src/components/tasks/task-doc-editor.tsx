@@ -12,6 +12,8 @@ import {
   Link2,
   Music,
   Plus,
+  Redo2,
+  Undo2,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -308,6 +310,23 @@ export function TaskDocEditor({
     saveBodyRef.current = saveBody;
   }, [saveBody]);
 
+  /* ---- Undo / redo history (block-level snapshots) ---- */
+  const pastRef = useRef<{ blocks: TaskBodyBlock[]; anchor: string | null }[]>([]);
+  const futureRef = useRef<{ blocks: TaskBodyBlock[]; anchor: string | null }[]>([]);
+  const lastPushRef = useRef(0);
+  const focusRef = useRef<FocusTarget | null>(null);
+  useEffect(() => {
+    focusRef.current = focus;
+  }, [focus]);
+  // History lengths mirrored into state so the undo/redo buttons update.
+  const [histLen, setHistLen] = useState({ past: 0, future: 0 });
+  const canUndo = histLen.past > 0;
+  const canRedo = histLen.future > 0;
+
+  function syncHistLen() {
+    setHistLen({ past: pastRef.current.length, future: futureRef.current.length });
+  }
+
   function scheduleSave() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     setSaveState("saving");
@@ -332,9 +351,103 @@ export function TaskDocEditor({
     []
   );
 
+  function sigOf(list: TaskBodyBlock[]): string {
+    const walk = (items: TaskBodyBlock[]): unknown[] =>
+      items.map((b) => [
+        b.id,
+        b.type,
+        !!b.checked,
+        !!b.collapsed,
+        b.width ?? null,
+        b.tableData ? b.tableData.length : 0,
+        b.text ? 1 : 0,
+        b.children ? walk(b.children) : 0,
+      ]);
+    try {
+      return JSON.stringify(walk(list));
+    } catch {
+      return String(list.length);
+    }
+  }
+
   function applyBlocks(next: TaskBodyBlock[]) {
+    const prev = blocksRef.current;
+    const now = Date.now();
+    // Undo history: structural changes always snapshot; pure typing
+    // coalesces into ~2s bursts so Ctrl+Z jumps over a burst, not a char.
+    if (
+      JSON.stringify(prev) !== JSON.stringify(next) &&
+      (sigOf(prev) !== sigOf(next) || now - lastPushRef.current > 2000)
+    ) {
+      pastRef.current.push({ blocks: prev, anchor: focusRef.current?.id ?? null });
+      if (pastRef.current.length > 50) pastRef.current.shift();
+      futureRef.current = [];
+      lastPushRef.current = now;
+      syncHistLen();
+    }
     setBlocks(next.length > 0 ? next : emptyBody());
     scheduleSave();
+  }
+
+  function restore(entry: { blocks: TaskBodyBlock[]; anchor: string | null }) {
+    setBlocks(entry.blocks.length > 0 ? entry.blocks : emptyBody());
+    scheduleSave();
+    if (entry.anchor) setFocus({ id: entry.anchor, caret: null });
+  }
+
+  function undo() {
+    const entry = pastRef.current.pop();
+    if (!entry) return;
+    futureRef.current.push({ blocks: blocksRef.current, anchor: focusRef.current?.id ?? null });
+    restore(entry);
+    syncHistLen();
+  }
+
+  function redo() {
+    const entry = futureRef.current.pop();
+    if (!entry) return;
+    pastRef.current.push({ blocks: blocksRef.current, anchor: focusRef.current?.id ?? null });
+    restore(entry);
+    syncHistLen();
+  }
+
+  function onEditorKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    const mod = e.ctrlKey || e.metaKey;
+    if (!mod) return;
+    // Leave native undo alone inside table cells / URL inputs.
+    if ((e.target as HTMLElement | null)?.tagName !== "TEXTAREA") return;
+    const k = e.key.toLowerCase();
+    if (k === "z" && !e.shiftKey) {
+      e.preventDefault();
+      undo();
+    } else if ((k === "z" && e.shiftKey) || k === "y") {
+      e.preventDefault();
+      redo();
+    }
+  }
+
+  function appendTrailing() {
+    const list = blocksRef.current;
+    const last = list[list.length - 1];
+    if (last && last.type === "text" && last.text === "" && areas.current.has(last.id)) {
+      setFocus({ id: last.id, caret: 0 });
+      return;
+    }
+    const block: TaskBodyBlock = { id: newBodyBlockId(), type: "text", text: "" };
+    applyBlocks([...list, block]);
+    setFocus({ id: block.id, caret: 0 });
+  }
+
+  function onEditorClick(e: React.MouseEvent<HTMLDivElement>) {
+    const t = e.target as HTMLElement;
+    if (
+      t.closest(
+        'button, input, a, textarea, select, [role="menu"], iframe, video, audio, table, [data-block-root]'
+      )
+    ) {
+      return;
+    }
+    appendTrailing();
   }
 
   function requestMedia(apply: (url: string, name?: string) => void, accept?: string) {
@@ -390,15 +503,39 @@ export function TaskDocEditor({
   };
 
   return (
-    <div>
-      <div className="mb-1 flex h-5 items-center justify-end" aria-live="polite">
-        {saveState === "saving" && <span className="text-[11px] text-muted-foreground">Saving…</span>}
-        {saveState === "saved" && !isEmptyBody(blocks) && (
-          <span className="text-[11px] text-muted-foreground">Saved</span>
-        )}
-        {saveState === "error" && (
-          <span className="text-[11px] text-destructive">Couldn&apos;t save — retrying on next edit</span>
-        )}
+    <div onKeyDown={onEditorKeyDown} onClick={onEditorClick}>
+      <div className="mb-1 flex h-5 items-center justify-between" aria-live="polite">
+        <span className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={undo}
+            disabled={!canUndo}
+            title="Undo (Ctrl+Z)"
+            aria-label="Undo"
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30"
+          >
+            <Undo2 className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={redo}
+            disabled={!canRedo}
+            title="Redo (Ctrl+Shift+Z)"
+            aria-label="Redo"
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30"
+          >
+            <Redo2 className="size-3.5" />
+          </button>
+        </span>
+        <span className="flex items-center gap-2">
+          {saveState === "saving" && <span className="text-[11px] text-muted-foreground">Saving…</span>}
+          {saveState === "saved" && !isEmptyBody(blocks) && (
+            <span className="text-[11px] text-muted-foreground">Saved</span>
+          )}
+          {saveState === "error" && (
+            <span className="text-[11px] text-destructive">Couldn&apos;t save — retrying on next edit</span>
+          )}
+        </span>
       </div>
       <BlockList
         scope={scope}
@@ -408,6 +545,8 @@ export function TaskDocEditor({
         level={0}
         shared={shared}
       />
+      {/* Click-anywhere zone (Notion-style): clicking empty space adds a line. */}
+      <div className="min-h-12 cursor-text" aria-hidden="true" />
       <input
         ref={mediaInput}
         type="file"
@@ -607,6 +746,17 @@ function BlockList({
     return n;
   }
 
+  /** Move focus to the nearest editable (textarea) block above/below. */
+  function focusNeighbor(id: string, dir: -1 | 1) {
+    const ids = blocks.filter((b) => shared.areas.current.has(b.id)).map((b) => b.id);
+    const i = ids.indexOf(id);
+    const j = i + dir;
+    if (i === -1 || j < 0 || j >= ids.length) return;
+    const target = ids[j];
+    const caret = dir > 0 ? 0 : (blocks.find((b) => b.id === target)?.text.length ?? 0);
+    shared.setFocus({ id: target, caret });
+  }
+
   function dropReorder(targetId: string, after: boolean) {
     const drag = shared.drag.get();
     shared.drag.set(null);
@@ -665,6 +815,8 @@ function BlockList({
           onToggleCheck={() => updateBlock(block.id, { checked: !block.checked })}
           onSplit={() => splitBlock(block.id)}
           onMergeBack={() => mergeBack(block.id)}
+          onFocusUp={() => focusNeighbor(block.id, -1)}
+          onFocusDown={() => focusNeighbor(block.id, 1)}
           onWidth={(width) => updateBlock(block.id, { width })}
           onLabel={(label) => updateBlock(block.id, { label })}
           onClearMedia={() => updateBlock(block.id, { text: "", label: undefined })}
@@ -718,6 +870,8 @@ function BodyRow(props: {
   onToggleCheck: () => void;
   onSplit: () => void;
   onMergeBack: () => void;
+  onFocusUp: () => void;
+  onFocusDown: () => void;
   onWidth: (width: number) => void;
   onLabel: (label: string) => void;
   onClearMedia: () => void;
@@ -731,13 +885,27 @@ function BodyRow(props: {
   const { block, shared, showPlus, showMenu } = props;
   const focused = shared.focus?.id === block.id;
   const empty = !blockHasContent(block) && block.type !== "divider" && block.type !== "toc";
-  const query = slashQuery(block.text);
-  const showSlash =
-    query !== null &&
-    (block.type === "text" || block.type === "h1" || block.type === "h2" || block.type === "h3" || block.type === "h4");
+  // Slash-menu nav state, keyed by the current query so it resets as you type
+  // (derived during render — no effect needed).
+  const [slashNav, setSlashNav] = useState({ q: "", idx: 0, off: false });
+  const slashQ = slashQuery(block.text);
+  const navQ = slashQ ?? "";
+  const nav = slashNav.q === navQ ? slashNav : { q: navQ, idx: 0, off: false };
+  const slashIdx = nav.idx;
+  const slashOff = nav.off;
+  const setSlashIdx = (i: number) => setSlashNav({ q: navQ, idx: i, off: nav.off });
+  const setSlashOff = (off: boolean) => setSlashNav({ q: navQ, idx: nav.idx, off });
+  const slashItems =
+    slashQ !== null &&
+    (block.type === "text" || block.type === "h1" || block.type === "h2" || block.type === "h3" || block.type === "h4")
+      ? MENU_GROUPS.flatMap((g) => g.types).filter((t) => matchesSlash(t, slashQ))
+      : [];
+  const showSlash = !slashOff && slashItems.length > 0;
+  const query = slashQ;
 
   return (
     <div
+      data-block-root={block.id}
       className="group relative flex items-start gap-1 rounded-md px-1 py-0.5"
       onDragOver={(e) => {
         if (!shared.drag.get()) return;
@@ -812,7 +980,13 @@ function BodyRow(props: {
       ) : null}
 
       {showSlash ? (
-        <SlashMenu query={query ?? ""} onPick={(type) => props.onTurnInto(type)} />
+        <SlashMenu
+          query={query ?? ""}
+          items={slashItems}
+          active={slashIdx}
+          onHover={setSlashIdx}
+          onPick={(type) => props.onTurnInto(type)}
+        />
       ) : null}
 
       <div className="min-w-0 flex-1">
@@ -851,6 +1025,8 @@ function BodyRow(props: {
             onTextChange={props.onTextChange}
             onSplit={props.onSplit}
             onMergeBack={props.onMergeBack}
+            onFocusUp={props.onFocusUp}
+            onFocusDown={props.onFocusDown}
             onTurnInto={props.onTurnInto}
             onToggleCollapse={props.onToggleCollapse}
             onChildren={props.onChildren}
@@ -861,11 +1037,18 @@ function BodyRow(props: {
             focus={shared.focus?.id === props.block.id ? shared.focus : null}
             numbered={props.numbered}
             areas={shared.areas}
+            slashItems={slashItems}
+            slashActive={slashIdx}
+            onSlashActive={setSlashIdx}
+            onSlashPick={(type) => props.onTurnInto(type)}
+            onSlashClose={() => setSlashOff(true)}
             onFocus={() => shared.setFocus({ id: props.block.id, caret: null })}
             onChange={props.onTextChange}
             onToggle={props.onToggleCheck}
             onSplit={props.onSplit}
             onMergeBack={props.onMergeBack}
+            onFocusUp={props.onFocusUp}
+            onFocusDown={props.onFocusDown}
             onTurnInto={props.onTurnInto}
           />
         )}
@@ -925,12 +1108,18 @@ function InsertMenu({
 
 function SlashMenu({
   query,
+  items,
+  active,
+  onHover,
   onPick,
 }: {
   query: string;
+  items: TaskBodyBlockType[];
+  active: number;
+  onHover: (i: number) => void;
   onPick: (type: TaskBodyBlockType) => void;
 }) {
-  const flat = MENU_GROUPS.flatMap((g) => g.types).filter((t) => matchesSlash(t, query));
+  const flat = items.filter((t) => matchesSlash(t, query));
   if (flat.length === 0) return null;
   return (
     <div
@@ -938,14 +1127,19 @@ function SlashMenu({
       aria-label="Turn into block"
       className="absolute left-8 top-8 z-20 max-h-72 w-60 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg"
     >
-      {flat.map((type) => (
+      {flat.map((type, i) => (
         <button
           key={type}
           type="button"
           role="menuitem"
+          aria-current={i === active ? true : undefined}
           onMouseDown={(e) => e.preventDefault()}
+          onMouseEnter={() => onHover(i)}
           onClick={() => onPick(type)}
-          className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            i === active && "bg-muted"
+          )}
         >
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm">{TYPE_LABEL[type]}</span>
@@ -1111,25 +1305,40 @@ function TextBody({
   focus,
   numbered,
   areas,
+  slashItems,
+  slashActive,
+  onSlashActive,
+  onSlashPick,
+  onSlashClose,
   onFocus,
   onChange,
   onToggle,
   onSplit,
   onMergeBack,
+  onFocusUp,
+  onFocusDown,
   onTurnInto,
 }: {
   block: TaskBodyBlock;
   focus: FocusTarget | null;
   numbered: number | null;
   areas: React.MutableRefObject<Map<string, HTMLTextAreaElement>>;
+  slashItems: TaskBodyBlockType[];
+  slashActive: number;
+  onSlashActive: (i: number) => void;
+  onSlashPick: (type: TaskBodyBlockType) => void;
+  onSlashClose: () => void;
   onFocus: () => void;
   onChange: (text: string) => void;
   onToggle: () => void;
   onSplit: () => void;
   onMergeBack: () => void;
+  onFocusUp: () => void;
+  onFocusDown: () => void;
   onTurnInto: (type: TaskBodyBlockType) => void;
 }) {
   const query = slashQuery(block.text);
+  const slashOpen = query !== null && slashItems.length > 0;
   const setRef = (el: HTMLTextAreaElement | null) => {
     if (el) areas.current.set(block.id, el);
     else areas.current.delete(block.id);
@@ -1167,6 +1376,11 @@ function TextBody({
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === "Enter" && !e.shiftKey) {
+          if (slashOpen) {
+            e.preventDefault();
+            onSlashPick(slashItems[Math.min(slashActive, slashItems.length - 1)]);
+            return;
+          }
           if (query !== null) {
             const flat = MENU_GROUPS.flatMap((g) => g.types).filter((t) =>
               matchesSlash(t, query)
@@ -1187,6 +1401,29 @@ function TextBody({
             e.preventDefault();
             onTurnInto(flat[0]);
           }
+        } else if (e.key === "ArrowUp") {
+          const el = e.target as HTMLTextAreaElement;
+          if (slashOpen) {
+            e.preventDefault();
+            onSlashActive((slashActive - 1 + slashItems.length) % slashItems.length);
+          } else if (!el.value.slice(0, el.selectionStart ?? 0).includes("\n")) {
+            // Caret is on the first line: move to the previous block.
+            e.preventDefault();
+            onFocusUp();
+          }
+        } else if (e.key === "ArrowDown") {
+          const el = e.target as HTMLTextAreaElement;
+          if (slashOpen) {
+            e.preventDefault();
+            onSlashActive((slashActive + 1) % slashItems.length);
+          } else {
+            const pos = el.selectionStart ?? el.value.length;
+            if (!el.value.slice(pos).includes("\n")) {
+              // Caret is on the last line: move to the next block.
+              e.preventDefault();
+              onFocusDown();
+            }
+          }
         } else if (e.key === "Backspace") {
           const el = e.target as HTMLTextAreaElement;
           if (el.selectionStart === 0) {
@@ -1194,6 +1431,10 @@ function TextBody({
             onMergeBack();
           }
         } else if (e.key === "Escape") {
+          if (slashOpen) {
+            e.preventDefault();
+            onSlashClose();
+          }
           (e.target as HTMLTextAreaElement).blur();
         }
       }}
@@ -1285,6 +1526,8 @@ function ToggleBody({
   onTextChange,
   onSplit,
   onMergeBack,
+  onFocusUp,
+  onFocusDown,
   onTurnInto,
   onToggleCollapse,
   onChildren,
@@ -1296,12 +1539,19 @@ function ToggleBody({
   onTextChange: (text: string) => void;
   onSplit: () => void;
   onMergeBack: () => void;
+  onFocusUp: () => void;
+  onFocusDown: () => void;
   onTurnInto: (type: TaskBodyBlockType) => void;
   onToggleCollapse: () => void;
   onChildren: (kids: TaskBodyBlock[]) => void;
 }) {
   const collapsed = block.collapsed ?? true;
   const kids = block.children ?? [];
+  const toggleSlashQ = slashQuery(block.text);
+  const toggleSlashItems =
+    toggleSlashQ !== null
+      ? MENU_GROUPS.flatMap((g) => g.types).filter((t) => matchesSlash(t, toggleSlashQ))
+      : [];
   return (
     <div>
       <div className="flex items-start gap-1.5">
@@ -1320,11 +1570,18 @@ function ToggleBody({
             focus={shared.focus?.id === block.id ? shared.focus : null}
             numbered={null}
             areas={shared.areas}
+            slashItems={toggleSlashItems}
+            slashActive={0}
+            onSlashActive={() => {}}
+            onSlashPick={(type) => onTurnInto(type)}
+            onSlashClose={() => {}}
             onFocus={() => shared.setFocus({ id: block.id, caret: null })}
             onChange={onTextChange}
             onToggle={() => {}}
             onSplit={onSplit}
             onMergeBack={onMergeBack}
+            onFocusUp={onFocusUp}
+            onFocusDown={onFocusDown}
             onTurnInto={onTurnInto}
           />
         </div>

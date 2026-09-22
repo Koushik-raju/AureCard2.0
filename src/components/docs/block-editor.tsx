@@ -154,12 +154,39 @@ function BlockTextArea({
     } else if (e.key === "Backspace" && block.text === "" && ref.current?.selectionStart === 0) {
       e.preventDefault();
       onKeyDown(e);
+    } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      // Notion-style: move between blocks when the caret is on the
+      // first/last line; otherwise let the caret move natively.
+      const el = e.target as HTMLTextAreaElement;
+      const pos = el.selectionStart ?? 0;
+      const firstLine = e.key === "ArrowUp" && !el.value.slice(0, pos).includes("\n");
+      const lastLine = e.key === "ArrowDown" && !el.value.slice(pos).includes("\n");
+      if (firstLine || lastLine) {
+        const root = el.closest("[data-block-nav]");
+        const areas = root
+          ? Array.from(root.querySelectorAll<HTMLTextAreaElement>("textarea[data-block-area]"))
+          : [];
+        const i = areas.indexOf(el);
+        const j = i + (e.key === "ArrowUp" ? -1 : 1);
+        if (i !== -1 && j >= 0 && j < areas.length) {
+          e.preventDefault();
+          const target = areas[j];
+          target.focus();
+          const caret = e.key === "ArrowUp" ? target.value.length : 0;
+          try {
+            target.setSelectionRange(caret, caret);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
     }
   };
 
   return (
     <textarea
       ref={ref}
+      data-block-area={block.id}
       value={block.text}
       rows={1}
       spellCheck
@@ -336,17 +363,25 @@ export function BlockEditor({ documentId, initialBlocks, taskTitles }: BlockEdit
     });
   };
 
-  const handleEnter = (id: string) => {
+  const handleEnter = (id: string, caret: number) => {
     const idx = blocks.findIndex((b) => b.id === id);
     const current = blocks[idx];
     if (!current) return;
 
     if (current.type === "code") {
-      updateText(id, current.text + "\n");
+      const at = Math.max(0, Math.min(caret, current.text.length));
+      updateText(id, `${current.text.slice(0, at)}\n${current.text.slice(at)}`);
       return;
     }
 
+    // Split at the caret like Notion: trailing text moves to the new block.
+    const at = Math.max(0, Math.min(caret, current.text.length));
+    const left = current.text.slice(0, at);
+    const right = current.text.slice(at);
+    updateText(id, left);
+
     const block = newBlock(documentId, nextTypeOnEnter(current.type));
+    block.text = right;
     setBlocks((prev) => {
       const i = prev.findIndex((b) => b.id === id);
       const next = [...prev];
@@ -359,6 +394,16 @@ export function BlockEditor({ documentId, initialBlocks, taskTitles }: BlockEdit
 
   const handleBackspace = (id: string) => {
     deleteBlock(id);
+  };
+
+  const appendAtEnd = () => {
+    const last = blocks[blocks.length - 1];
+    if (!last) return;
+    if (last.type !== "image" && last.type !== "video" && !last.text) {
+      setFocusedId(last.id);
+      return;
+    }
+    insertBlock(last.id, "paragraph");
   };
 
   const numberedIndex = (block: EditableBlock) => {
@@ -375,7 +420,24 @@ export function BlockEditor({ documentId, initialBlocks, taskTitles }: BlockEdit
 
   return (
     <div className="mx-auto w-full max-w-2xl">
-      <div className="space-y-0.5" role="document" aria-label="Document editor">
+      <div
+        className="space-y-0.5"
+        role="document"
+        aria-label="Document editor"
+        data-block-nav={documentId}
+        onClick={(e) => {
+          const t = e.target as HTMLElement;
+          if (
+            t.closest(
+              'button, input, a, textarea, select, [role="menu"], iframe, video, audio, table, [data-block-root]'
+            )
+          ) {
+            return;
+          }
+          if (blocks.length === 0) return;
+          appendAtEnd();
+        }}
+      >
         {blocks.map((block, index) => {
           const isLast = index === blocks.length - 1;
           const isChecked = block.taskId
@@ -395,7 +457,7 @@ export function BlockEditor({ documentId, initialBlocks, taskTitles }: BlockEdit
               onChange={(text) => updateText(block.id, text)}
               onFocus={() => setFocusedId(block.id)}
               onToggle={() => setChecked(block.id, !isChecked)}
-              onEnter={() => handleEnter(block.id)}
+              onEnter={(caret) => handleEnter(block.id, caret)}
               onBackspace={() => handleBackspace(block.id)}
               onOpenMenu={() => setMenuFor(block.id)}
               onCloseMenu={() => setMenuFor(null)}
@@ -417,6 +479,8 @@ export function BlockEditor({ documentId, initialBlocks, taskTitles }: BlockEdit
           Add block
         </button>
       ) : null}
+      {/* Click-anywhere zone: clicking empty space below adds a line. */}
+      <div className="min-h-12 cursor-text" aria-hidden="true" onClick={appendAtEnd} />
 
       <input
         ref={mediaInput}
@@ -450,7 +514,7 @@ function BlockRow(props: {
   onChange: (text: string) => void;
   onFocus: () => void;
   onToggle: () => void;
-  onEnter: () => void;
+  onEnter: (caret: number) => void;
   onBackspace: () => void;
   onOpenMenu: () => void;
   onCloseMenu: () => void;
@@ -485,15 +549,17 @@ function BlockRow(props: {
     onFocus,
     onChange,
     onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter") onEnter();
-      else if (e.key === "Backspace") onBackspace();
+      if (e.key === "Enter") {
+        const el = e.target as HTMLTextAreaElement;
+        onEnter(el.selectionStart ?? el.value.length);
+      } else if (e.key === "Backspace") onBackspace();
     },
   };
 
   const rowClass = "group relative flex items-start gap-2 rounded-md px-1 py-0.5";
 
   return (
-    <div className={rowClass}>
+    <div className={rowClass} data-block-root={block.id}>
       {block.type !== "divider" ? (
         <button
           type="button"
