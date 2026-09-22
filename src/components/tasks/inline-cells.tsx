@@ -57,6 +57,12 @@ export function CellShell({
     };
   }, [open, position]);
 
+  // Re-anchor after every render while open: row expand/collapse, add-forms
+  // and list updates shift the trigger without firing scroll/resize.
+  useEffect(() => {
+    if (open) position();
+  });
+
   return (
     <>
       <span ref={triggerRef} className="min-w-0">

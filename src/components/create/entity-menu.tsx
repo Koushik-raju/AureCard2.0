@@ -58,6 +58,12 @@ export function Dropdown({
     };
   }, [open, position]);
 
+  // Re-anchor after every render while open: row expand/collapse, add-forms
+  // and list updates shift the trigger without firing scroll/resize.
+  useEffect(() => {
+    if (open) position();
+  });
+
   return (
     <DropdownContext.Provider value={{ close }}>
       <span ref={triggerRef} className="relative inline-flex">
