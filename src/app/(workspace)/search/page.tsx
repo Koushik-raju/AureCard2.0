@@ -140,7 +140,7 @@ export default async function SearchPage() {
   ];
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-10 sm:py-14">
+    <div className="mx-auto w-full max-w-5xl px-6 py-10 sm:py-14">
       <header>
         <h1 className="font-serif text-3xl font-medium tracking-tight sm:text-4xl">
           Search

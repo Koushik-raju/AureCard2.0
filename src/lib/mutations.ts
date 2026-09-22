@@ -1,9 +1,24 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServerSupabase, isDbConfigured } from "@/lib/server-supabase";
 import { getCurrentUser } from "@/app/actions/auth";
-import type { Accent, DocumentBlockType, TaskPriority, TaskStatus } from "@/lib/types";
+import type {
+  Accent,
+  DocumentBlockType,
+  DocumentRef,
+  NoteType,
+  Project,
+  RecordingType,
+  Space,
+  Task,
+  TaskAttachmentKind,
+  TaskItem,
+  TaskPriority,
+  TaskStatus,
+} from "@/lib/types";
+import { getStatusLabel } from "@/lib/data";
 import * as memory from "@/lib/data";
 
 /**
@@ -16,6 +31,29 @@ function newId(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
+/** Chunk a transcript into ≤1200-char paragraph blocks for storage. */
+function splitForStorage(text: string): string[] {
+  const lines = text
+    .split(/\n+/)
+    .map((l) => l.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 300);
+  const chunks: string[] = [];
+  let current = "";
+  for (const line of lines) {
+    if (!current) {
+      current = line;
+    } else if ((current + " " + line).length <= 1200) {
+      current = `${current} ${line}`;
+    } else {
+      chunks.push(current);
+      current = line;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks.slice(0, 300);
+}
+
 async function requireClient() {
   const client = createServerSupabase();
   const user = await getCurrentUser();
@@ -25,17 +63,180 @@ async function requireClient() {
   return { client, user };
 }
 
+function formatWhen(date: Date): string {
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * Best-effort history record. Never throws: a failed history write must not
+ * break the mutation it accompanies.
+ */
+async function logActivity(taskId: string, text: string, actor?: string) {
+  const author = actor ?? (await getCurrentUser())?.email ?? "You";
+  if (!isDbConfigured) {
+    memory.taskActivity.unshift({
+      id: newId("ta"),
+      taskId,
+      author,
+      text,
+      when: formatWhen(new Date()),
+      createdAt: new Date().toISOString(),
+    });
+    return;
+  }
+  const client = createServerSupabase();
+  if (!client) return;
+  const { error } = await client.from("task_activity").insert({
+    id: newId("ta"),
+    task_id: taskId,
+    author,
+    text,
+    when: formatWhen(new Date()),
+  });
+  if (error) console.error("[atlas] logActivity:", error.message);
+}
+
+// ---------- Cascade helpers ----------
+
+function removeMemoryDocuments(docIds: Set<string>) {
+  if (docIds.size === 0) return;
+  for (let i = memory.documents.length - 1; i >= 0; i--) {
+    if (docIds.has(memory.documents[i].id)) memory.documents.splice(i, 1);
+  }
+  for (let i = memory.documentBlocks.length - 1; i >= 0; i--) {
+    if (docIds.has(memory.documentBlocks[i].documentId)) memory.documentBlocks.splice(i, 1);
+  }
+  for (let i = memory.documentAttachments.length - 1; i >= 0; i--) {
+    if (docIds.has(memory.documentAttachments[i].documentId)) memory.documentAttachments.splice(i, 1);
+  }
+}
+
+function removeMemoryTasks(taskIds: Set<string>) {
+  if (taskIds.size === 0) return;
+  for (let i = memory.tasks.length - 1; i >= 0; i--) {
+    if (taskIds.has(memory.tasks[i].id)) memory.tasks.splice(i, 1);
+  }
+  for (let i = memory.taskItems.length - 1; i >= 0; i--) {
+    if (taskIds.has(memory.taskItems[i].taskId)) memory.taskItems.splice(i, 1);
+  }
+  for (let i = memory.taskComments.length - 1; i >= 0; i--) {
+    if (taskIds.has(memory.taskComments[i].taskId)) memory.taskComments.splice(i, 1);
+  }
+  for (let i = memory.taskActivity.length - 1; i >= 0; i--) {
+    if (taskIds.has(memory.taskActivity[i].taskId)) memory.taskActivity.splice(i, 1);
+  }
+  for (let i = memory.taskAttachments.length - 1; i >= 0; i--) {
+    if (taskIds.has(memory.taskAttachments[i].taskId)) memory.taskAttachments.splice(i, 1);
+  }
+}
+
+/** Delete a project's child rows. Safe against tables that aren't created yet. */
+async function deleteProjectCascade(client: SupabaseClient, projectId: string) {
+  await client.from("documents").delete().eq("project_id", projectId);
+  await client.from("tasks").delete().eq("project_id", projectId);
+  await client.from("lists").delete().eq("project_id", projectId);
+  await client.from("folders").delete().eq("project_id", projectId);
+}
+
+/** Delete rows owned directly by a space (after projects have been cascaded). */
+async function deleteSpaceCascade(client: SupabaseClient, spaceId: string) {
+  await client.from("documents").delete().eq("space_id", spaceId);
+  await client.from("tasks").delete().eq("space_id", spaceId);
+  await client.from("lists").delete().eq("space_id", spaceId);
+  await client.from("folders").delete().eq("space_id", spaceId);
+}
+
 export async function updateTaskStatus(taskId: string, status: TaskStatus) {
-  if (!isDbConfigured) return;
-  const { client } = await requireClient();
+  if (!isDbConfigured) {
+    const task = memory.tasks.find((t) => t.id === taskId);
+    if (task) task.status = status;
+    const user = await getCurrentUser();
+    await logActivity(taskId, `moved the task to ${getStatusLabel(status)}`, user?.email);
+    revalidatePath("/tasks");
+    revalidatePath("/search");
+    revalidatePath(`/tasks/${taskId}`);
+    return;
+  }
+  const { client, user } = await requireClient();
   const { error } = await client
     .from("tasks")
     .update({ status })
     .eq("id", taskId);
   if (error) throw new Error(error.message);
+  await logActivity(taskId, `moved the task to ${getStatusLabel(status)}`, user.email ?? "Someone");
   revalidatePath("/tasks");
   revalidatePath("/search");
   revalidatePath(`/tasks/${taskId}`);
+}
+
+export type EditTaskItemInput = {
+  id: string;
+  title?: string;
+  done?: boolean;
+  assignee?: string | null;
+  dueDate?: string | null;
+  priority?: TaskPriority | null;
+  description?: string;
+};
+
+/**
+ * Update a subtask item (title, done, assignee, due date, priority,
+ * Notion-style body). Only provided keys are written.
+ */
+export async function updateTaskItem(
+  taskId: string,
+  input: EditTaskItemInput
+): Promise<{ error?: string }> {
+  const patch: Partial<TaskItem> = {};
+  if (input.title !== undefined) {
+    const title = input.title.trim();
+    if (!title) return { error: "Title is required." };
+    patch.title = title.slice(0, 200);
+  }
+  if (input.done !== undefined) patch.done = input.done;
+  if (input.assignee !== undefined) patch.assignee = input.assignee?.trim() || undefined;
+  if (input.dueDate !== undefined) patch.dueDate = input.dueDate || undefined;
+  if (input.priority !== undefined) patch.priority = input.priority ?? undefined;
+  if (input.description !== undefined) patch.description = input.description;
+  if (!isDbConfigured) {
+    const item = memory.taskItems.find((i) => i.id === input.id);
+    if (!item) return { error: "Not found." };
+    Object.assign(item, patch);
+    const user = await getCurrentUser();
+    if (input.done !== undefined) {
+      await logActivity(
+        taskId,
+        `${input.done ? "checked off" : "reopened"} a subtask`,
+        user?.email
+      );
+    }
+    revalidatePath(`/tasks/${taskId}`);
+    return {};
+  }
+  const { client, user } = await requireClient();
+  const livePatch: Record<string, unknown> = {};
+  if (patch.title !== undefined) livePatch.title = patch.title;
+  if (patch.done !== undefined) livePatch.done = patch.done;
+  if ("assignee" in patch) livePatch.assignee = patch.assignee ?? null;
+  if ("dueDate" in patch) livePatch.due_date = patch.dueDate ?? null;
+  if ("priority" in patch) livePatch.priority = patch.priority ?? null;
+  if (patch.description !== undefined) livePatch.description = patch.description;
+  const { error } = await client.from("task_items").update(livePatch).eq("id", input.id);
+  if (error) return { error: error.message };
+  if (input.done !== undefined) {
+    await logActivity(
+      taskId,
+      `${input.done ? "checked off" : "reopened"} a subtask`,
+      user.email ?? "Someone"
+    );
+  }
+  revalidatePath(`/tasks/${taskId}`);
+  return {};
 }
 
 export async function updateTaskItemDone(
@@ -43,27 +244,90 @@ export async function updateTaskItemDone(
   itemId: string,
   done: boolean
 ) {
-  if (!isDbConfigured) return;
-  const { client } = await requireClient();
+  if (!isDbConfigured) {
+    const item = memory.taskItems.find((i) => i.id === itemId);
+    if (item) item.done = done;
+    const user = await getCurrentUser();
+    await logActivity(taskId, `${done ? "checked off" : "reopened"} a subtask`, user?.email);
+    revalidatePath(`/tasks/${taskId}`);
+    return;
+  }
+  const { client, user } = await requireClient();
   const { error } = await client
     .from("task_items")
     .update({ done })
     .eq("id", itemId);
   if (error) throw new Error(error.message);
+  await logActivity(taskId, `${done ? "checked off" : "reopened"} a subtask`, user.email ?? "Someone");
   revalidatePath(`/tasks/${taskId}`);
+}
+
+export async function createTaskItem(
+  taskId: string,
+  title: string,
+  parentId?: string
+): Promise<{ error?: string }> {
+  const body = title.trim();
+  if (!body) return { error: "Enter a subtask." };
+  const id = newId("item");
+  if (!isDbConfigured) {
+    memory.taskItems.push({
+      id,
+      taskId,
+      parentId: parentId || undefined,
+      title: body.slice(0, 200),
+      done: false,
+    });
+    const user = await getCurrentUser();
+    await logActivity(taskId, "added a subtask", user?.email);
+    revalidatePath(`/tasks/${taskId}`);
+    return {};
+  }
+  const { client, user } = await requireClient();
+  const { error } = await client.from("task_items").insert({
+    id,
+    task_id: taskId,
+    parent_id: parentId || null,
+    title: body.slice(0, 200),
+    done: false,
+  });
+  if (error) return { error: error.message };
+  await logActivity(taskId, "added a subtask", user.email ?? "Someone");
+  revalidatePath(`/tasks/${taskId}`);
+  return {};
+}
+
+export async function deleteTaskItem(taskId: string, itemId: string): Promise<{ error?: string }> {
+  if (!isDbConfigured) {
+    const idx = memory.taskItems.findIndex((i) => i.id === itemId);
+    if (idx !== -1) memory.taskItems.splice(idx, 1);
+    revalidatePath(`/tasks/${taskId}`);
+    return {};
+  }
+  const { client } = await requireClient();
+  const { error } = await client.from("task_items").delete().eq("id", itemId);
+  if (error) return { error: error.message };
+  revalidatePath(`/tasks/${taskId}`);
+  return {};
 }
 
 export async function addComment(taskId: string, text: string) {
   const body = text.trim();
   if (!body) return;
-  if (!isDbConfigured) return;
-  const { client, user } = await requireClient();
+  const user = await getCurrentUser();
+  if (!isDbConfigured) {
+    await logActivity(taskId, "added a comment", user?.email);
+    revalidatePath(`/tasks/${taskId}`);
+    return;
+  }
+  const { client, user: signedIn } = await requireClient();
   const { error } = await client.from("task_comments").insert({
     task_id: taskId,
-    author: user.email ?? "Guest",
+    author: signedIn.email ?? "Guest",
     text: body.slice(0, 1000),
   });
   if (error) throw new Error(error.message);
+  await logActivity(taskId, "added a comment", signedIn.email ?? "Someone");
   revalidatePath(`/tasks/${taskId}`);
 }
 
@@ -144,6 +408,8 @@ type CreateTaskInput = {
   description?: string;
   dueDate?: string;
   tags?: string[];
+  quote?: string;
+  sourceDocId?: string;
 };
 export async function createTask(
   input: CreateTaskInput
@@ -164,6 +430,8 @@ export async function createTask(
       description: input.description?.trim() || undefined,
       dueDate: input.dueDate || undefined,
       tags: input.tags?.length ? input.tags : undefined,
+      quote: input.quote?.trim() || undefined,
+      sourceDocId: input.sourceDocId || undefined,
     });
     revalidatePath("/tasks");
     revalidatePath("/spaces");
@@ -181,6 +449,8 @@ export async function createTask(
     description: input.description?.trim() || null,
     due_date: input.dueDate || null,
     tags: input.tags?.length ? input.tags : [],
+    quote: input.quote?.trim() || null,
+    source_doc_id: input.sourceDocId || null,
   });
   if (error) return { error: error.message };
   revalidatePath("/tasks");
@@ -193,7 +463,20 @@ type CreateDocumentInput = {
   title: string;
   spaceId: string;
   projectId?: string;
-  kind?: "doc" | "note";
+  kind?: "doc" | "note" | "file";
+  blocks?: { type: DocumentBlockType; text: string }[];
+  attachments?: {
+    name: string;
+    mime: string;
+    size: number;
+    data: string;
+  }[];
+  noteType?: NoteType;
+  recordingType?: RecordingType;
+  durationSecs?: number;
+  summary?: string;
+  /** Full transcript text; stored as paragraph blocks (also for file docs). */
+  transcript?: string;
 };
 export async function createDocument(
   input: CreateDocumentInput
@@ -203,6 +486,14 @@ export async function createDocument(
   if (!input.spaceId) return { error: "Choose a space." };
   const kind = input.kind ?? "doc";
   const id = newId("doc");
+  const body = (input.blocks ?? [])
+    .map((b) => ({ type: b.type, text: b.text.slice(0, 5000) }))
+    .filter((b) => b.text.trim().length > 0)
+    .slice(0, 300);
+  const attachments = (input.attachments ?? []).slice(0, 50);
+  if (kind === "doc" && attachments.length === 0 && body.length === 0) {
+    body.push({ type: "paragraph", text: "" });
+  }
   if (!isDbConfigured) {
     memory.documents.push({
       id,
@@ -210,13 +501,48 @@ export async function createDocument(
       spaceId: input.spaceId,
       projectId: input.projectId || undefined,
       kind,
+      noteType: input.noteType,
+      recordingType: input.recordingType,
+      durationSecs: input.durationSecs,
+      summary: input.summary,
     });
-    memory.documentBlocks.push({
-      id: newId("blk"),
-      documentId: id,
-      type: "heading",
-      text: title,
-    });
+    if (kind !== "file") {
+      memory.documentBlocks.push({
+        id: newId("blk"),
+        documentId: id,
+        type: "heading",
+        text: title,
+      });
+      for (const block of body) {
+        memory.documentBlocks.push({
+          id: newId("blk"),
+          documentId: id,
+          type: block.type,
+          text: block.text,
+        });
+      }
+    } else if (input.transcript?.trim()) {
+      // File docs carry the transcript as paragraph blocks so the
+      // recording detail Transcript tab can render it.
+      for (const chunk of splitForStorage(input.transcript)) {
+        memory.documentBlocks.push({
+          id: newId("blk"),
+          documentId: id,
+          type: "paragraph",
+          text: chunk,
+        });
+      }
+    }
+    for (const file of attachments) {
+      memory.documentAttachments.push({
+        id: newId("da"),
+        documentId: id,
+        name: file.name,
+        mime: file.mime,
+        size: file.size,
+        data: file.data,
+      });
+    }
     revalidatePath("/docs");
     revalidatePath("/spaces");
     return { id };
@@ -229,22 +555,631 @@ export async function createDocument(
     project_id: input.projectId || null,
     kind,
     task_ids: [],
+    note_type: input.noteType ?? null,
+    recording_type: input.recordingType ?? null,
+    duration_secs: input.durationSecs ?? null,
+    summary: input.summary ?? null,
   });
   if (error) return { error: error.message };
-  const blockId = newId("blk");
-  const { error: blockError } = await client.from("document_blocks").insert({
-    id: blockId,
-    document_id: id,
-    type: "heading",
-    text: title,
-    checked: false,
-    position: 0,
-  });
-  if (blockError) return { error: blockError.message };
+  if (kind !== "file") {
+    const rows = [
+      {
+        id: newId("blk"),
+        document_id: id,
+        type: "heading",
+        text: title,
+        checked: false,
+        position: 0,
+      },
+      ...body.map((block, index) => ({
+        id: newId("blk"),
+        document_id: id,
+        type: block.type,
+        text: block.text,
+        checked: false,
+        position: index + 1,
+      })),
+    ];
+    const { error: blockError } = await client.from("document_blocks").insert(rows);
+    if (blockError) {
+      // Avoid leaving an empty ghost document behind.
+      await client.from("documents").delete().eq("id", id);
+      return { error: blockError.message };
+    }
+  } else if (input.transcript?.trim()) {
+    const rows = splitForStorage(input.transcript).map((text, index) => ({
+      id: newId("blk"),
+      document_id: id,
+      type: "paragraph",
+      text,
+      checked: false,
+      position: index,
+    }));
+    const { error: blockError } = await client.from("document_blocks").insert(rows);
+    if (blockError) {
+      await client.from("documents").delete().eq("id", id);
+      return { error: blockError.message };
+    }
+  }
+  if (attachments.length > 0) {
+    const attachmentRows = attachments.map((file, index) => ({
+      id: newId("da"),
+      document_id: id,
+      name: file.name,
+      mime: file.mime,
+      size: file.size,
+      data: file.data,
+      position: index,
+    }));
+    const { error: attachmentError } = await client
+      .from("document_attachments")
+      .insert(attachmentRows);
+    if (attachmentError) {
+      // Avoid leaving an empty ghost document behind.
+      await client.from("documents").delete().eq("id", id);
+      return { error: attachmentError.message };
+    }
+  }
   revalidatePath("/docs");
   revalidatePath("/spaces");
   revalidatePath("/search");
   return { id };
+}
+
+export type CreateDocumentAttachmentInput = {
+  name: string;
+  mime: string;
+  size: number;
+  data: string;
+};
+
+export async function createDocumentAttachment(
+  documentId: string,
+  input: CreateDocumentAttachmentInput
+): Promise<{ error?: string }> {
+  const name = input.name.trim();
+  if (!name) return { error: "File is required." };
+  const id = newId("da");
+  if (!isDbConfigured) {
+    memory.documentAttachments.push({
+      id,
+      documentId,
+      name,
+      mime: input.mime,
+      size: input.size,
+      data: input.data,
+    });
+    revalidatePath(`/docs/${documentId}`);
+    return {};
+  }
+  const { client } = await requireClient();
+  const { error } = await client.from("document_attachments").insert({
+    id,
+    document_id: documentId,
+    name,
+    mime: input.mime,
+    size: input.size,
+    data: input.data,
+    position: 0,
+  });
+  if (error) return { error: error.message };
+  revalidatePath(`/docs/${documentId}`);
+  return {};
+}
+
+export async function deleteDocumentAttachment(
+  documentId: string,
+  attachmentId: string
+): Promise<{ error?: string }> {
+  if (!isDbConfigured) {
+    const idx = memory.documentAttachments.findIndex((a) => a.id === attachmentId);
+    if (idx !== -1) memory.documentAttachments.splice(idx, 1);
+    revalidatePath(`/docs/${documentId}`);
+    return {};
+  }
+  const { client } = await requireClient();
+  const { error } = await client
+    .from("document_attachments")
+    .delete()
+    .eq("id", attachmentId);
+  if (error) return { error: error.message };
+  revalidatePath(`/docs/${documentId}`);
+  return {};
+}
+
+// ---------- Update / Delete ----------
+
+type EditSpaceInput = { id: string; name?: string; description?: string; accent?: Accent };
+export async function updateSpace(input: EditSpaceInput): Promise<{ error?: string }> {
+  const patch: Partial<Space> = {};
+  if (input.name !== undefined) {
+    const name = input.name.trim();
+    if (!name) return { error: "Name is required." };
+    patch.name = name;
+  }
+  if (input.description !== undefined) patch.description = input.description.trim();
+  if (input.accent !== undefined) patch.accent = input.accent;
+  if (!isDbConfigured) {
+    const space = memory.spaces.find((s) => s.id === input.id);
+    if (!space) return { error: "Not found." };
+    Object.assign(space, patch);
+    revalidatePath("/spaces");
+    revalidatePath("/home");
+    return {};
+  }
+  const { client } = await requireClient();
+  const { error } = await client
+    .from("spaces")
+    .update({ ...patch, description: patch.description ?? null })
+    .eq("id", input.id);
+  if (error) return { error: error.message };
+  revalidatePath("/spaces");
+  revalidatePath("/home");
+  return {};
+}
+
+export async function deleteSpace(id: string): Promise<{ error?: string }> {
+  if (!isDbConfigured) {
+    const idx = memory.spaces.findIndex((s) => s.id === id);
+    if (idx === -1) return { error: "Not found." };
+    memory.spaces.splice(idx, 1);
+    for (let i = memory.projects.length - 1; i >= 0; i--) {
+      if (memory.projects[i].spaceId === id) memory.projects.splice(i, 1);
+    }
+    for (let i = memory.folders.length - 1; i >= 0; i--) {
+      if (memory.folders[i].spaceId === id) memory.folders.splice(i, 1);
+    }
+    for (let i = memory.lists.length - 1; i >= 0; i--) {
+      if (memory.lists[i].spaceId === id) memory.lists.splice(i, 1);
+    }
+    const taskIds = new Set(memory.tasks.filter((t) => t.spaceId === id).map((t) => t.id));
+    removeMemoryTasks(taskIds);
+    const docIds = new Set(memory.documents.filter((d) => d.spaceId === id).map((d) => d.id));
+    removeMemoryDocuments(docIds);
+    revalidatePath("/spaces");
+    revalidatePath("/home");
+    return {};
+  }
+  const { client } = await requireClient();
+  const projectRows = (await client.from("projects").select("id").eq("space_id", id)).data ?? [];
+  for (const row of projectRows) {
+    await deleteProjectCascade(client, String((row as { id: string }).id));
+  }
+  await deleteSpaceCascade(client, id);
+  const { error } = await client.from("spaces").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/spaces");
+  revalidatePath("/home");
+  return {};
+}
+
+type EditProjectInput = { id: string; name?: string; description?: string | null; spaceId?: string };
+export async function updateProject(input: EditProjectInput): Promise<{ error?: string }> {
+  const patch: Partial<Project> = {};
+  if (input.name !== undefined) {
+    const name = input.name.trim();
+    if (!name) return { error: "Name is required." };
+    patch.name = name;
+  }
+  if (input.description !== undefined) patch.description = (input.description ?? "").trim() || undefined;
+  if (input.spaceId !== undefined) patch.spaceId = input.spaceId;
+  if (!isDbConfigured) {
+    const project = memory.projects.find((p) => p.id === input.id);
+    if (!project) return { error: "Not found." };
+    Object.assign(project, patch);
+    revalidatePath("/projects");
+    revalidatePath("/spaces");
+    return {};
+  }
+  const { client } = await requireClient();
+  const { error } = await client
+    .from("projects")
+    .update({ ...patch, description: patch.description ?? null })
+    .eq("id", input.id);
+  if (error) return { error: error.message };
+  revalidatePath("/projects");
+  revalidatePath("/spaces");
+  return {};
+}
+
+export async function deleteProject(id: string): Promise<{ error?: string }> {
+  if (!isDbConfigured) {
+    const idx = memory.projects.findIndex((p) => p.id === id);
+    if (idx === -1) return { error: "Not found." };
+    memory.projects.splice(idx, 1);
+    const folderIds = new Set(memory.folders.filter((f) => f.projectId === id).map((f) => f.id));
+    for (let i = memory.folders.length - 1; i >= 0; i--) {
+      if (folderIds.has(memory.folders[i].id)) memory.folders.splice(i, 1);
+    }
+    const listIds = new Set(memory.lists.filter((l) => l.projectId === id).map((l) => l.id));
+    for (let i = memory.lists.length - 1; i >= 0; i--) {
+      if (listIds.has(memory.lists[i].id)) memory.lists.splice(i, 1);
+    }
+    const taskIds = new Set(memory.tasks.filter((t) => t.projectId === id).map((t) => t.id));
+    removeMemoryTasks(taskIds);
+    const docIds = new Set(memory.documents.filter((d) => d.projectId === id).map((d) => d.id));
+    removeMemoryDocuments(docIds);
+    revalidatePath("/projects");
+    revalidatePath("/spaces");
+    revalidatePath("/search");
+    return {};
+  }
+  const { client } = await requireClient();
+  await deleteProjectCascade(client, id);
+  const { error } = await client.from("projects").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/projects");
+  revalidatePath("/spaces");
+  revalidatePath("/search");
+  return {};
+}
+export type EditTaskInput = {
+  id: string;
+  title?: string;
+  status?: TaskStatus;
+  priority?: TaskPriority | null;
+  assignee?: string | null;
+  description?: string;
+  dueDate?: string | null;
+  startDate?: string | null;
+  tags?: string[];
+  quote?: string | null;
+  sourceDocId?: string | null;
+};
+
+export async function updateTask(input: EditTaskInput): Promise<{ error?: string }> {
+  const patch: Partial<Task> = {};
+  const changed: string[] = [];
+  if (input.title !== undefined) {
+    const title = input.title.trim();
+    if (!title) return { error: "Title is required." };
+    patch.title = title;
+    changed.push("the title");
+  }
+  if (input.status !== undefined) {
+    patch.status = input.status;
+    changed.push(`the status to ${getStatusLabel(input.status)}`);
+  }
+  if (input.priority !== undefined) {
+    patch.priority = input.priority ?? undefined;
+    changed.push(input.priority ? `priority to ${input.priority}` : "priority");
+  }
+  if (input.assignee !== undefined) {
+    patch.assignee = input.assignee?.trim() || undefined;
+    changed.push(input.assignee?.trim() ? `the assignee to ${input.assignee.trim()}` : "the assignee");
+  }
+  if (input.description !== undefined) {
+    patch.description = input.description?.trim() || undefined;
+    changed.push("the description");
+  }
+  if (input.dueDate !== undefined) {
+    patch.dueDate = input.dueDate || undefined;
+    changed.push(input.dueDate ? `the due date to ${input.dueDate}` : "the due date");
+  }
+  if (input.startDate !== undefined) {
+    patch.startDate = input.startDate || undefined;
+    changed.push(input.startDate ? `the start date to ${input.startDate}` : "the start date");
+  }
+  if (input.tags !== undefined) {
+    patch.tags = input.tags;
+    changed.push("the tags");
+  }
+  if (input.quote !== undefined) {
+    patch.quote = input.quote?.trim() || undefined;
+    changed.push("the source quote");
+  }
+  if (input.sourceDocId !== undefined) {
+    patch.sourceDocId = input.sourceDocId || undefined;
+    changed.push("the source note");
+  }
+  const summary = changed.length ? `updated ${changed.join(", ")}` : "";
+  if (!isDbConfigured) {
+    const task = memory.tasks.find((t) => t.id === input.id);
+    if (!task) return { error: "Not found." };
+    Object.assign(task, patch);
+    const user = await getCurrentUser();
+    if (summary) await logActivity(input.id, summary, user?.email);
+    revalidatePath("/tasks");
+    revalidatePath(`/tasks/${input.id}`);
+    revalidatePath("/home");
+    return {};
+  }
+  const { client, user } = await requireClient();
+  const livePatch: Record<string, unknown> = {};
+  // Only the fields explicitly provided in the request are written to the DB.
+  // Clearing a field (assignee/due date/priority/…) is expressed by the caller
+  // passing the key, which maps to NULL here.
+  if (Object.prototype.hasOwnProperty.call(patch, "title")) livePatch.title = patch.title;
+  if (Object.prototype.hasOwnProperty.call(patch, "status")) livePatch.status = patch.status;
+  if (Object.prototype.hasOwnProperty.call(patch, "priority")) livePatch.priority = patch.priority ?? null;
+  if (Object.prototype.hasOwnProperty.call(patch, "assignee")) livePatch.assignee = patch.assignee ?? null;
+  if (Object.prototype.hasOwnProperty.call(patch, "description")) livePatch.description = patch.description ?? null;
+  if (Object.prototype.hasOwnProperty.call(patch, "dueDate")) livePatch.due_date = patch.dueDate ?? null;
+  if (Object.prototype.hasOwnProperty.call(patch, "startDate")) livePatch.start_date = patch.startDate ?? null;
+  if (Object.prototype.hasOwnProperty.call(patch, "tags")) livePatch.tags = patch.tags ?? [];
+  if (Object.prototype.hasOwnProperty.call(patch, "quote")) livePatch.quote = patch.quote ?? null;
+  if (Object.prototype.hasOwnProperty.call(patch, "sourceDocId")) livePatch.source_doc_id = patch.sourceDocId ?? null;
+  const { error } = await client.from("tasks").update(livePatch).eq("id", input.id);
+  if (error) return { error: error.message };
+  if (summary) await logActivity(input.id, summary, user.email ?? "Someone");
+  revalidatePath("/tasks");
+  revalidatePath(`/tasks/${input.id}`);
+  revalidatePath("/home");
+  revalidatePath("/search");
+  return {};
+}
+
+export async function deleteTask(id: string): Promise<{ error?: string }> {
+  if (!isDbConfigured) {
+    const idx = memory.tasks.findIndex((t) => t.id === id);
+    if (idx === -1) return { error: "Not found." };
+    memory.tasks.splice(idx, 1);
+    for (let i = memory.taskItems.length - 1; i >= 0; i--) {
+      if (memory.taskItems[i].taskId === id) memory.taskItems.splice(i, 1);
+    }
+    for (let i = memory.taskComments.length - 1; i >= 0; i--) {
+      if (memory.taskComments[i].taskId === id) memory.taskComments.splice(i, 1);
+    }
+    for (let i = memory.taskActivity.length - 1; i >= 0; i--) {
+      if (memory.taskActivity[i].taskId === id) memory.taskActivity.splice(i, 1);
+    }
+    for (let i = memory.taskAttachments.length - 1; i >= 0; i--) {
+      if (memory.taskAttachments[i].taskId === id) memory.taskAttachments.splice(i, 1);
+    }
+    revalidatePath("/tasks");
+    revalidatePath("/home");
+    revalidatePath("/search");
+    return {};
+  }
+  const { client } = await requireClient();
+  // task_attachments may not exist yet on an un-migrated database; supabase returns
+  // an error object rather than throwing, so this is safe to run unconditionally.
+  await client.from("task_attachments").delete().eq("task_id", id);
+  await client.from("task_items").delete().eq("task_id", id);
+  await client.from("task_comments").delete().eq("task_id", id);
+  await client.from("task_activity").delete().eq("task_id", id);
+  const { error } = await client.from("tasks").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/tasks");
+  revalidatePath("/home");
+  revalidatePath("/search");
+  return {};
+}
+
+export type CreateTaskAttachmentInput = {
+  kind: TaskAttachmentKind;
+  url: string;
+  label?: string;
+};
+
+export async function createTaskAttachment(
+  taskId: string,
+  input: CreateTaskAttachmentInput
+): Promise<{ error?: string }> {
+  const url = input.url.trim();
+  if (!url) return { error: "URL is required." };
+  const label = input.label?.trim();
+  const id = newId("att");
+  if (!isDbConfigured) {
+    memory.taskAttachments.push({
+      id,
+      taskId,
+      kind: input.kind,
+      url,
+      label: label || undefined,
+    });
+    revalidatePath(`/tasks/${taskId}`);
+    return {};
+  }
+  const { client } = await requireClient();
+  const { error } = await client.from("task_attachments").insert({
+    id,
+    task_id: taskId,
+    kind: input.kind,
+    url,
+    label: label ?? "",
+    position: 0,
+  });
+  if (error) return { error: error.message };
+  revalidatePath(`/tasks/${taskId}`);
+  return {};
+}
+
+export async function deleteTaskAttachment(
+  taskId: string,
+  attachmentId: string
+): Promise<{ error?: string }> {
+  if (!isDbConfigured) {
+    const idx = memory.taskAttachments.findIndex((a) => a.id === attachmentId);
+    if (idx !== -1) memory.taskAttachments.splice(idx, 1);
+    revalidatePath(`/tasks/${taskId}`);
+    return {};
+  }
+  const { client } = await requireClient();
+  const { error } = await client
+    .from("task_attachments")
+    .delete()
+    .eq("id", attachmentId);
+  if (error) return { error: error.message };
+  revalidatePath(`/tasks/${taskId}`);
+  return {};
+}
+
+type EditDocumentInput = { id: string; title?: string; spaceId?: string; kind?: "doc" | "note" };
+export async function updateDocument(input: EditDocumentInput): Promise<{ error?: string }> {
+  const patch: Partial<DocumentRef> = {};
+  if (input.title !== undefined) {
+    const title = input.title.trim();
+    if (!title) return { error: "Title is required." };
+    patch.title = title;
+  }
+  if (input.spaceId !== undefined) patch.spaceId = input.spaceId;
+  if (input.kind !== undefined) patch.kind = input.kind;
+  if (!isDbConfigured) {
+    const doc = memory.documents.find((d) => d.id === input.id);
+    if (!doc) return { error: "Not found." };
+    Object.assign(doc, patch);
+    revalidatePath("/docs");
+    revalidatePath(`/docs/${input.id}`);
+    revalidatePath("/search");
+    return {};
+  }
+  const { client } = await requireClient();
+  const { error } = await client.from("documents").update(patch).eq("id", input.id);
+  if (error) return { error: error.message };
+  revalidatePath("/docs");
+  revalidatePath(`/docs/${input.id}`);
+  revalidatePath("/search");
+  return {};
+}
+
+export async function deleteDocument(id: string): Promise<{ error?: string }> {
+  if (!isDbConfigured) {
+    removeMemoryDocuments(new Set([id]));
+    revalidatePath("/docs");
+    revalidatePath("/search");
+    return {};
+  }
+  const { client } = await requireClient();
+  await client.from("document_blocks").delete().eq("document_id", id);
+  await client.from("document_attachments").delete().eq("document_id", id);
+  const { error } = await client.from("documents").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/docs");
+  revalidatePath("/search");
+  return {};
+}
+
+// ---------- Folders & Lists ----------
+
+type CreateFolderInput = { name: string; projectId: string; spaceId: string };
+export async function createFolder(input: CreateFolderInput): Promise<{ id?: string; error?: string }> {
+  const name = input.name.trim();
+  if (!name) return { error: "Name is required." };
+  const id = newId("folder");
+  if (!isDbConfigured) {
+    memory.folders.push({ id, name, projectId: input.projectId, spaceId: input.spaceId });
+    revalidatePath("/projects");
+    return { id };
+  }
+  const { client } = await requireClient();
+  const { error } = await client.from("folders").insert({
+    id,
+    name,
+    project_id: input.projectId,
+    space_id: input.spaceId,
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/projects");
+  return { id };
+}
+
+type CreateListInput = { name: string; projectId: string; spaceId: string; folderId?: string };
+export async function createList(input: CreateListInput): Promise<{ id?: string; error?: string }> {
+  const name = input.name.trim();
+  if (!name) return { error: "Name is required." };
+  const id = newId("list");
+  if (!isDbConfigured) {
+    memory.lists.push({
+      id,
+      name,
+      projectId: input.projectId,
+      spaceId: input.spaceId,
+      folderId: input.folderId || undefined,
+    });
+    revalidatePath("/projects");
+    return { id };
+  }
+  const { client } = await requireClient();
+  const { error } = await client.from("lists").insert({
+    id,
+    name,
+    project_id: input.projectId,
+    space_id: input.spaceId,
+    folder_id: input.folderId || null,
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/projects");
+  return { id };
+}
+
+export async function renameFolder(id: string, name: string): Promise<{ error?: string }> {
+  const trimmed = name.trim();
+  if (!trimmed) return { error: "Name is required." };
+  if (!isDbConfigured) {
+    const folder = memory.folders.find((f) => f.id === id);
+    if (!folder) return { error: "Not found." };
+    folder.name = trimmed;
+    revalidatePath("/projects");
+    return {};
+  }
+  const { client } = await requireClient();
+  const { error } = await client.from("folders").update({ name: trimmed }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/projects");
+  return {};
+}
+
+export async function renameList(id: string, name: string): Promise<{ error?: string }> {
+  const trimmed = name.trim();
+  if (!trimmed) return { error: "Name is required." };
+  if (!isDbConfigured) {
+    const list = memory.lists.find((l) => l.id === id);
+    if (!list) return { error: "Not found." };
+    list.name = trimmed;
+    revalidatePath("/projects");
+    return {};
+  }
+  const { client } = await requireClient();
+  const { error } = await client.from("lists").update({ name: trimmed }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/projects");
+  return {};
+}
+
+export async function deleteFolder(id: string): Promise<{ error?: string }> {
+  if (!isDbConfigured) {
+    const idx = memory.folders.findIndex((f) => f.id === id);
+    if (idx === -1) return { error: "Not found." };
+    memory.folders.splice(idx, 1);
+    const listIds = new Set(memory.lists.filter((l) => l.folderId === id).map((l) => l.id));
+    for (let i = memory.lists.length - 1; i >= 0; i--) {
+      if (listIds.has(memory.lists[i].id)) memory.lists.splice(i, 1);
+    }
+    const taskIds = new Set(memory.tasks.filter((t) => t.listId && listIds.has(t.listId)).map((t) => t.id));
+    removeMemoryTasks(taskIds);
+    revalidatePath("/projects");
+    return {};
+  }
+  const { client } = await requireClient();
+  const listRows = (await client.from("lists").select("id").eq("folder_id", id)).data ?? [];
+  const listIds = listRows.map((r) => String((r as { id: string }).id));
+  for (const listId of listIds) {
+    await client.from("tasks").delete().eq("list_id", listId);
+  }
+  if (listIds.length) await client.from("lists").delete().in("id", listIds);
+  const { error } = await client.from("folders").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/projects");
+  return {};
+}
+
+export async function deleteList(id: string): Promise<{ error?: string }> {
+  if (!isDbConfigured) {
+    const idx = memory.lists.findIndex((l) => l.id === id);
+    if (idx === -1) return { error: "Not found." };
+    memory.lists.splice(idx, 1);
+    const taskIds = new Set(memory.tasks.filter((t) => t.listId === id).map((t) => t.id));
+    removeMemoryTasks(taskIds);
+    revalidatePath("/projects");
+    return {};
+  }
+  const { client } = await requireClient();
+  await client.from("tasks").delete().eq("list_id", id);
+  const { error } = await client.from("lists").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/projects");
+  return {};
 }
 
 export async function updateBlock(

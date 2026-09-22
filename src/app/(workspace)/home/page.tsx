@@ -34,11 +34,11 @@ function HourStrip() {
       {hours.map((h) => {
         const active = h === hour;
         return (
-          <div key={h} className="flex min-w-6 flex-col items-center gap-1.5">
+          <div key={h} className="flex min-w-9 flex-col items-center gap-1.5">
             <span
               className={
                 active
-                  ? "flex size-6 items-center justify-center rounded-full bg-primary text-[11px] font-medium text-primary-foreground"
+                  ? "flex h-9 min-w-9 items-center justify-center whitespace-nowrap rounded-full bg-primary px-1.5 text-[11px] font-medium tabular-nums text-primary-foreground"
                   : "text-[11px] tabular-nums text-muted-foreground"
               }
             >
@@ -154,7 +154,7 @@ export default async function HomePage() {
     }));
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-6 py-10 sm:py-14">
+    <div className="mx-auto w-full max-w-5xl px-6 py-10 sm:py-14">
       <header>
         <p className="text-xs font-semibold text-primary">{formatGreeting()}</p>
         <h1 className="mt-1 font-serif text-3xl font-medium tracking-tight sm:text-4xl">

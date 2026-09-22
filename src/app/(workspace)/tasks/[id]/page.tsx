@@ -8,6 +8,9 @@ import {
   getCommentsForTask,
   getActivityForTask,
   getDocumentsForTask,
+  getTaskAttachmentsForTask,
+  getDocument,
+  getDocsForSpace,
 } from "@/lib/repository";
 import { getCurrentUser } from "@/app/actions/auth";
 import { TaskDetail } from "@/components/tasks/task-detail";
@@ -22,7 +25,7 @@ export default async function TaskDetailPage({
   if (!task) notFound();
 
   const user = await getCurrentUser();
-  const [project, space, list, items, comments, activity, documents] =
+  const [project, space, list, items, comments, activity, documents, attachments, sourceDoc, spaceDocs] =
     await Promise.all([
       task.projectId ? getProject(task.projectId) : Promise.resolve(undefined),
       task.spaceId ? getSpace(task.spaceId) : Promise.resolve(undefined),
@@ -31,12 +34,14 @@ export default async function TaskDetailPage({
       getCommentsForTask(task.id),
       getActivityForTask(task.id),
       getDocumentsForTask(task.id),
+      getTaskAttachmentsForTask(task.id),
+      task.sourceDocId ? getDocument(task.sourceDocId) : Promise.resolve(undefined),
+      getDocsForSpace(task.spaceId),
     ]);
 
   return (
     <TaskDetail
       task={task}
-      projectId={task.projectId}
       projectName={project?.name}
       spaceName={space?.name}
       listName={list?.name}
@@ -44,7 +49,10 @@ export default async function TaskDetailPage({
       comments={comments}
       activity={activity}
       documents={documents}
+      attachments={attachments}
       currentAuthor={user?.email}
+      sourceDocTitle={sourceDoc?.title}
+      spaceDocs={spaceDocs.map((d) => ({ id: d.id, title: d.title }))}
     />
   );
 }

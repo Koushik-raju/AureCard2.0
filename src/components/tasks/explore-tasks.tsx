@@ -3,23 +3,26 @@
 import { useMemo, useState } from "react";
 import { LayoutGrid, List, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Project, Space, Task, TaskStatus } from "@/lib/types";
+import type { Project, Space, Task, TaskItem, TaskStatus } from "@/lib/types";
 import { useTaskStatusOverrides } from "@/lib/session-store";
 import { Input } from "@/components/ui/input";
-import { TaskListView } from "./task-list-view";
+import { GroupedTaskList } from "./grouped-task-list";
 import { TaskBoardView } from "./task-board-view";
+import { isMine } from "./task-meta";
 
 type StatusFilter = "all" | TaskStatus;
+type OwnerFilter = "all" | "mine" | "waiting";
 type ViewMode = "list" | "board";
 
 const STATUS_TABS: {
   key: StatusFilter;
   label: string;
-  countKey?: "todo" | "inProgress" | "done";
+  countKey?: "todo" | "inProgress" | "inReview" | "done";
 }[] = [
   { key: "all", label: "All" },
   { key: "todo", label: "To Do", countKey: "todo" },
   { key: "in-progress", label: "In Progress", countKey: "inProgress" },
+  { key: "in-review", label: "In Review", countKey: "inReview" },
   { key: "done", label: "Done", countKey: "done" },
 ];
 
@@ -27,13 +30,24 @@ type ExploreTasksProps = {
   tasks: Task[];
   projects: Project[];
   spaces: Space[];
-  counts: { total: number; todo: number; inProgress: number; done: number };
+  counts: { total: number; todo: number; inProgress: number; inReview: number; done: number };
+  itemsByTask?: Record<string, TaskItem[]>;
+  currentUserEmail?: string;
+  docTitle?: Map<string, string>;
 };
 
-export function ExploreTasks({ tasks, projects, spaces, counts }: ExploreTasksProps) {
+const OWNER_TABS: { key: OwnerFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "mine", label: "Mine" },
+  { key: "waiting", label: "Waiting on" },
+];
+
+export function ExploreTasks({ tasks, projects, spaces, counts, itemsByTask, currentUserEmail, docTitle }: ExploreTasksProps) {
   const [view, setView] = useState<ViewMode>("list");
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [owner, setOwner] = useState<OwnerFilter>("all");
   const [spaceId, setSpaceId] = useState<string>("all");
+  const [projectId, setProjectId] = useState<string>("all");
   const [query, setQuery] = useState("");
   const overrides = useTaskStatusOverrides();
 
@@ -49,6 +63,11 @@ export function ExploreTasks({ tasks, projects, spaces, counts }: ExploreTasksPr
     return map;
   }, [spaces]);
 
+  const availableProjects = useMemo(() => {
+    const ids = new Set(tasks.map((t) => t.projectId).filter(Boolean) as string[]);
+    return projects.filter((p) => ids.has(p.id));
+  }, [projects, tasks]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return tasks
@@ -59,36 +78,56 @@ export function ExploreTasks({ tasks, projects, spaces, counts }: ExploreTasksPr
       )
       .filter((task) => {
         if (status !== "all" && task.status !== status) return false;
+        if (owner === "mine" && !isMine(task.assignee, currentUserEmail)) return false;
+        if (owner === "waiting" && (!task.assignee || isMine(task.assignee, currentUserEmail))) return false;
         if (spaceId !== "all" && task.spaceId !== spaceId) return false;
+        if (projectId !== "all" && task.projectId !== projectId) return false;
         if (q && !task.title.toLowerCase().includes(q)) return false;
         return true;
       });
-  }, [tasks, status, spaceId, query, overrides]);
+  }, [tasks, status, owner, currentUserEmail, spaceId, projectId, query, overrides]);
+
+  const openTasks = useMemo(() => filtered.filter((t) => t.status !== "done"), [filtered]);
+  const doneTasks = useMemo(() => filtered.filter((t) => t.status === "done"), [filtered]);
+
+  // Board view exists only for the "All" section; picking a status tab
+  // drops back to the list so per-status boards never appear.
+  const effectiveView: ViewMode = status === "all" ? view : "list";
+
+  function pickStatus(next: StatusFilter) {
+    setStatus(next);
+    if (next !== "all") setView("list");
+  }
 
   return (
     <div>
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {STATUS_TABS.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setStatus(tab.key)}
-                className={cn(
-                  "rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  status === tab.key
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                {tab.label}
-                <span className="ml-1.5 text-xs opacity-70">
-                  {tab.countKey ? counts[tab.countKey] : counts.total}
-                </span>
-              </button>
-            ))}
-          </div>
+          {effectiveView === "list" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {STATUS_TABS.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => pickStatus(tab.key)}
+                  className={cn(
+                    "rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    status === tab.key
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  {tab.label}
+                  <span className="ml-1.5 text-xs opacity-70">
+                    {tab.countKey ? counts[tab.countKey] : counts.total}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div />
+          )}
 
+          {status === "all" ? (
           <div
             role="tablist"
             aria-label="Task view"
@@ -119,6 +158,11 @@ export function ExploreTasks({ tasks, projects, spaces, counts }: ExploreTasksPr
               <span className="hidden sm:inline">Board</span>
             </button>
           </div>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              Board view lives on the All tab
+            </span>
+          )}
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -131,6 +175,27 @@ export function ExploreTasks({ tasks, projects, spaces, counts }: ExploreTasksPr
               aria-label="Search tasks"
               className="pl-9"
             />
+          </div>
+          <div
+            role="tablist"
+            aria-label="Owner filter"
+            className="inline-flex items-center gap-0.5 rounded-full border border-border p-0.5"
+          >
+            {OWNER_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                role="tab"
+                aria-selected={owner === tab.key}
+                onClick={() => setOwner(tab.key)}
+                title={tab.key === "mine" && !currentUserEmail ? "Sign in to use Mine" : undefined}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  owner === tab.key ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
           <select
             value={spaceId}
@@ -145,13 +210,44 @@ export function ExploreTasks({ tasks, projects, spaces, counts }: ExploreTasksPr
               </option>
             ))}
           </select>
+          <select
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            aria-label="Filter by project"
+            className="h-9 rounded-md border border-input bg-transparent px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="all">All projects</option>
+            {availableProjects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+          {effectiveView === "board" ? (
+            <span className="text-xs text-muted-foreground sm:ml-auto">
+              Drag cards between columns to change status
+            </span>
+          ) : null}
         </div>
       </div>
 
-      {view === "list" ? (
-        <TaskListView tasks={filtered} projectName={projectName} spaceName={spaceName} />
+      {effectiveView === "list" ? (
+        <>
+          <h2 className="mt-8 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Open · {openTasks.length}
+          </h2>
+          <GroupedTaskList tasks={openTasks} projectName={projectName} spaceName={spaceName} itemsByTask={itemsByTask} />
+          {doneTasks.length > 0 ? (
+            <>
+              <h2 className="mt-10 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Done · {doneTasks.length}
+              </h2>
+              <GroupedTaskList tasks={doneTasks} projectName={projectName} spaceName={spaceName} itemsByTask={itemsByTask} defaultExpanded={false} />
+            </>
+          ) : null}
+        </>
       ) : (
-        <TaskBoardView tasks={filtered} projectName={projectName} spaceName={spaceName} />
+        <TaskBoardView tasks={filtered} projectName={projectName} spaceName={spaceName} itemsByTask={itemsByTask} docTitle={docTitle} />
       )}
     </div>
   );

@@ -8,10 +8,16 @@ import { Input } from "@/components/ui/input";
 import { CreateButton, Field, FormActions, SelectField } from "./inline-create";
 import type { Space } from "@/lib/types";
 
-export function CreateProjectButton({ spaces }: { spaces: Space[] }) {
+export function CreateProjectButton({
+  spaces,
+  defaultSpaceId,
+}: {
+  spaces: Space[];
+  defaultSpaceId?: string;
+}) {
   const router = useRouter();
   const [name, setName] = useState("");
-  const [spaceId, setSpaceId] = useState("");
+  const [spaceId, setSpaceId] = useState(defaultSpaceId ?? "");
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Check, CircleDot, Play } from "lucide-react";
+import { Check, CircleDot, Eye, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Task, TaskStatus } from "@/lib/types";
 import { useTaskStatusOverrides } from "@/lib/session-store";
@@ -9,12 +9,14 @@ import { useTaskStatusOverrides } from "@/lib/session-store";
 const STATUS_ICON: Record<TaskStatus, React.ComponentType<{ className?: string }>> = {
   todo: CircleDot,
   "in-progress": Play,
+  "in-review": Eye,
   done: Check,
 };
 
 const STATUS_COLOR: Record<TaskStatus, string> = {
   todo: "text-muted-foreground",
   "in-progress": "text-primary",
+  "in-review": "text-amber-600",
   done: "text-foreground",
 };
 

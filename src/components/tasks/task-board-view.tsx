@@ -3,13 +3,15 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import type { Task, TaskStatus } from "@/lib/types";
+import type { Task, TaskItem, TaskStatus } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
 import { setTaskStatus as setSessionTaskStatus } from "@/lib/session-store";
 import { updateTaskStatus } from "@/lib/mutations";
 import { PriorityDot, formatShortDate } from "./task-visuals";
+import { SubtaskInline } from "./subtask-inline";
+import { SourceLine, WhoBadge } from "./task-meta";
 
-const COLUMNS: TaskStatus[] = ["todo", "in-progress", "done"];
+const COLUMNS: TaskStatus[] = ["todo", "in-progress", "in-review", "done"];
 
 function initials(name: string) {
   return name
@@ -24,9 +26,11 @@ type TaskBoardViewProps = {
   tasks: Task[];
   projectName: Map<string, string>;
   spaceName: Map<string, string>;
+  itemsByTask?: Record<string, TaskItem[]>;
+  docTitle?: Map<string, string>;
 };
 
-export function TaskBoardView({ tasks, projectName, spaceName }: TaskBoardViewProps) {
+export function TaskBoardView({ tasks, projectName, spaceName, itemsByTask, docTitle }: TaskBoardViewProps) {
   const [localStatuses, setLocalStatuses] = useState<Record<string, TaskStatus>>({});
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overColumn, setOverColumn] = useState<TaskStatus | null>(null);
@@ -154,13 +158,24 @@ export function TaskBoardView({ tasks, projectName, spaceName }: TaskBoardViewPr
                     {task.projectId && task.spaceId ? " · " : ""}
                     {task.spaceId ? spaceName.get(task.spaceId) ?? "" : ""}
                   </p>
+                  <SourceLine
+                    quote={task.quote}
+                    sourceDocId={task.sourceDocId}
+                    sourceDocTitle={task.sourceDocId ? docTitle?.get(task.sourceDocId) : undefined}
+                  />
                   <div className="mt-3 flex items-center gap-2">
                     <PriorityDot priority={task.priority} className="mr-1" />
+                    <WhoBadge assignee={task.assignee} open={task.status !== "done"} />
                     {task.dueDate ? (
                       <span className="text-xs tabular-nums text-muted-foreground">
                         {formatShortDate(task.dueDate)}
                       </span>
                     ) : null}
+                    <SubtaskInline
+                      taskId={task.id}
+                      items={itemsByTask?.[task.id] ?? []}
+                      brief
+                    />
                     {task.assignee ? (
                       <span className="ml-auto flex size-5 items-center justify-center rounded-full bg-secondary text-[10px] font-medium text-muted-foreground">
                         {initials(task.assignee)}

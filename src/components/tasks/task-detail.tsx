@@ -3,30 +3,49 @@
 import { useMemo, useState } from "react";
 import { useTransition } from "react";
 import Link from "next/link";
-import { Check, ChevronDown, FileText, StickyNote } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, ChevronDown, FileText, Pencil, StickyNote } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type {
   DocumentRef,
   Task,
   TaskActivity,
+  TaskAttachment,
   TaskComment,
   TaskItem,
+  TaskPriority,
   TaskStatus,
 } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
+import { PREF_KEYS, readJson } from "@/lib/prefs";
 import { setTaskStatus as setSessionTaskStatus } from "@/lib/session-store";
+import type { EditTaskInput } from "@/lib/mutations";
 import {
   addComment,
+  createTaskAttachment,
+  deleteTaskAttachment,
+  deleteTaskItem,
+  updateTask,
   updateTaskItemDone,
   updateTaskStatus,
 } from "@/lib/mutations";
+import { TaskMenu } from "@/components/create/entity-menus";
+import { TaskDocEditor } from "@/components/tasks/task-doc-editor";
+import { SubtaskTree } from "@/components/tasks/subtask-rows";
+import { trackCommentEcho, useRealtimeTask } from "./use-realtime-task";
+import {
+  AddSubtask,
+  AttachmentsSection,
+  AttachmentShow,
+  PriorityPicker,
+} from "./task-fields";
 
-const STATUS_OPTIONS: TaskStatus[] = ["todo", "in-progress", "done"];
+const STATUS_OPTIONS: TaskStatus[] = ["todo", "in-progress", "in-review", "done"];
 
 type TaskDetailProps = {
   task: Task;
-  projectId?: string;
   projectName?: string;
   spaceName?: string;
   listName?: string;
@@ -34,7 +53,10 @@ type TaskDetailProps = {
   comments: TaskComment[];
   activity: TaskActivity[];
   documents: DocumentRef[];
+  attachments: TaskAttachment[];
   currentAuthor?: string;
+  sourceDocTitle?: string;
+  spaceDocs?: { id: string; title: string }[];
 };
 
 function Field({
@@ -109,105 +131,6 @@ function StatusControl({
   );
 }
 
-function TaskItemNode({
-  item,
-  children,
-  done,
-  onToggle,
-  depth,
-}: {
-  item: TaskItem;
-  children: React.ReactNode;
-  done: boolean;
-  onToggle: (id: string) => void;
-  depth: number;
-}) {
-  return (
-    <li>
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => onToggle(item.id)}
-          role="checkbox"
-          aria-checked={done}
-          aria-label={item.title}
-          className={cn(
-            "flex size-4 shrink-0 items-center justify-center rounded-sm border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            done
-              ? "border-primary bg-primary text-primary-foreground"
-              : "border-muted-foreground/40 hover:border-primary hover:bg-primary/10"
-          )}
-        >
-          {done ? <Check className="size-3" strokeWidth={3} /> : null}
-        </button>
-        <span
-          className={cn(
-            "text-[15px] leading-snug",
-            depth > 0 && "text-[14px]",
-            done && "text-muted-foreground line-through"
-          )}
-        >
-          {item.title}
-        </span>
-      </div>
-      {children ? (
-        <ul className="border-l border-border/70 pl-3 mt-1">{children}</ul>
-      ) : null}
-    </li>
-  );
-}
-
-function RecursiveItems({
-  items,
-  parentId,
-  doneMap,
-  onToggle,
-}: {
-  items: TaskItem[];
-  parentId: string | undefined;
-  doneMap: Record<string, boolean>;
-  onToggle: (id: string) => void;
-}) {
-  const childrenOf = useMemo(
-    () => items.filter((item) => (item.parentId ?? undefined) === parentId),
-    [items, parentId]
-  );
-
-  if (childrenOf.length === 0) return null;
-
-  return (
-    <>
-      {childrenOf.map((item) => {
-        const depth = item.parentId
-          ? countDepth(items, item.id)
-          : 0;
-        return (
-          <TaskItemNode
-            key={item.id}
-            item={item}
-            done={doneMap[item.id] ?? item.done}
-            onToggle={onToggle}
-            depth={depth}
-          >
-            <RecursiveItems
-              items={items}
-              parentId={item.id}
-              doneMap={doneMap}
-              onToggle={onToggle}
-            />
-          </TaskItemNode>
-        );
-      })}
-    </>
-  );
-}
-
-function countDepth(items: TaskItem[], id: string): number {
-  const item = items.find((i) => i.id === id);
-  if (!item || !item.parentId) return 0;
-  return 1 + countDepth(items, item.parentId);
-}
-
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
     <h3 className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
@@ -216,9 +139,23 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   );
 }
 
+function parseTags(value: string): string[] {
+  return value
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 10);
+}
+
+function formatDate(date?: string) {
+  if (!date) return null;
+  const d = new Date(date + "T00:00:00");
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
 export function TaskDetail({
   task,
-  projectId,
   projectName,
   spaceName,
   listName,
@@ -226,14 +163,53 @@ export function TaskDetail({
   comments,
   activity,
   documents,
+  attachments,
   currentAuthor,
+  sourceDocTitle,
+  spaceDocs = [],
 }: TaskDetailProps) {
+  const router = useRouter();
   const [status, setStatus] = useState<TaskStatus>(task.status);
   const [itemStates, setItemStates] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(items.map((s) => [s.id, s.done]))
   );
   const [localComments, setLocalComments] = useState<TaskComment[]>(comments);
   const [isPending, startTransition] = useTransition();
+
+  const [editing, setEditing] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [draft, setDraft] = useState({
+    title: task.title,
+    priority: task.priority ?? (null as TaskPriority | null),
+    assignee: task.assignee ?? "",
+    dueDate: task.dueDate ?? "",
+    tags: (task.tags ?? []).join(", "),
+    quote: task.quote ?? "",
+    sourceDocId: task.sourceDocId ?? "",
+  });
+  const [added, setAdded] = useState<TaskAttachment[]>([]);
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  const [subtasksOpen, setSubtasksOpen] = useState(true);
+  const [displayName] = useState(
+    () => readJson<{ name: string }>(PREF_KEYS.displayName, { name: "" }).name ?? ""
+  );
+  const authorName = currentAuthor ?? displayName ?? "";
+
+  useRealtimeTask(task.id, {
+    onStatus(s) {
+      setStatus((prev) => (prev === s ? prev : s));
+    },
+    onComment(comment) {
+      setLocalComments((prev) =>
+        prev.some((c) => c.id === comment.id || (c.author === comment.author && c.text === comment.text))
+          ? prev
+          : [...prev, comment]
+      );
+    },
+    onItemDone(id, done) {
+      setItemStates((prev) => ({ ...prev, [id]: done }));
+    },
+  });
 
   const doneCount = useMemo(
     () => items.filter((item) => itemStates[item.id] ?? item.done).length,
@@ -251,11 +227,77 @@ export function TaskDetail({
       return { ...prev, [id]: next };
     });
 
+  function startEditing() {
+    setDraft({
+      title: task.title,
+      priority: task.priority ?? null,
+      assignee: task.assignee ?? "",
+      dueDate: task.dueDate ?? "",
+      tags: (task.tags ?? []).join(", "),
+      quote: task.quote ?? "",
+      sourceDocId: task.sourceDocId ?? "",
+    });
+    setAdded([]);
+    setRemoved(new Set());
+    setSaveError(null);
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    setAdded([]);
+    setRemoved(new Set());
+    setSaveError(null);
+    setEditing(false);
+  }
+
+  async function saveEditing() {
+    const updates: EditTaskInput = { id: task.id };
+    if (draft.title.trim() !== task.title) updates.title = draft.title.trim();
+    // Description is edited inline in the Notion-style body above and
+    // autosaves independently, so it stays out of the Update form.
+    if ((draft.priority ?? null) !== (task.priority ?? null)) updates.priority = draft.priority;
+    const assignee = draft.assignee.trim();
+    const origAssignee = task.assignee?.trim() ?? "";
+    if ((assignee || null) !== (origAssignee || null)) updates.assignee = assignee || null;
+    const due = draft.dueDate || null;
+    if (due !== (task.dueDate ?? null)) updates.dueDate = due;
+    const tags = parseTags(draft.tags);
+    if (tags.join("\u0000") !== (task.tags ?? []).join("\u0000")) updates.tags = tags;
+    const quote = draft.quote.trim();
+    if ((quote || null) !== (task.quote?.trim() || null)) updates.quote = quote || null;
+    const sourceDocId = draft.sourceDocId || null;
+    if (sourceDocId !== (task.sourceDocId ?? null)) updates.sourceDocId = sourceDocId;
+
+    startTransition(async () => {
+      const result = await updateTask(updates);
+      if (result.error) {
+        setSaveError(result.error);
+        return;
+      }
+      for (const a of added) {
+        const r = await createTaskAttachment(task.id, { kind: a.kind, url: a.url, label: a.label });
+        if (r.error) {
+          setSaveError(r.error);
+          return;
+        }
+      }
+      for (const id of removed) {
+        const r = await deleteTaskAttachment(task.id, id);
+        if (r.error) {
+          setSaveError(r.error);
+          return;
+        }
+      }
+      cancelEditing();
+      router.refresh();
+    });
+  }
+
   const crumb = projectName ?? listName ?? spaceName ?? "Tasks";
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-8 sm:py-10">
-      <nav className="mb-6">
+    <div className="w-full px-6 py-8 sm:py-10">
+      <nav className="mx-auto mb-6 max-w-prose">
         <Link
           href="/tasks"
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
@@ -264,91 +306,257 @@ export function TaskDetail({
         </Link>
       </nav>
 
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="font-serif text-2xl font-medium tracking-tight sm:text-3xl">
-          {task.title}
-        </h1>
-        <StatusControl
-          status={status}
-          onChange={(s) => {
-            setStatus(s);
-            setSessionTaskStatus(task.id, s);
-            startTransition(() =>
-              updateTaskStatus(task.id, s).catch(() => {
-                setStatus(task.status);
-                setSessionTaskStatus(task.id, task.status);
-              })
-            );
-          }}
-        />
+      <header className="mx-auto flex max-w-prose flex-wrap items-start justify-between gap-4">
+        {editing ? (
+          <Input
+            value={draft.title}
+            onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+            aria-label="Task title"
+            className="h-10 font-serif text-2xl font-medium tracking-tight"
+            autoFocus
+          />
+        ) : (
+          <h1 className="font-serif text-2xl font-medium tracking-tight sm:text-3xl">
+            {task.title}
+          </h1>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusControl
+            status={status}
+            onChange={(s) => {
+              setStatus(s);
+              setSessionTaskStatus(task.id, s);
+              startTransition(() =>
+                updateTaskStatus(task.id, s).catch(() => {
+                  setStatus(task.status);
+                  setSessionTaskStatus(task.id, task.status);
+                })
+              );
+            }}
+          />
+          {editing ? (
+            <>
+              <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={cancelEditing}>
+                Cancel
+              </Button>
+              <Button type="button" size="sm" disabled={isPending} onClick={() => void saveEditing()}>
+                {isPending ? "Saving…" : "Save"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button type="button" variant="outline" size="sm" onClick={startEditing}>
+                <Pencil className="size-3.5" /> Update
+              </Button>
+              <TaskMenu taskId={task.id} taskTitle={task.title} />
+            </>
+          )}
+        </div>
       </header>
 
-      <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-1 rounded-xl border border-border bg-card p-5 sm:grid-cols-3">
-        <Field label="Status">{getStatusLabel(status)}</Field>
-        <Field label="Priority">{task.priority ? capitalize(task.priority) : "—"}</Field>
-        <Field label="Assignee">{task.assignee ?? "—"}</Field>
-        <Field label="Due date">{formatDate(task.dueDate) ?? "—"}</Field>
-        <Field label="Project">
-          {projectName ? (
-            projectId ? (
-              <Link
-                href={`/projects/${projectId}`}
-                className="hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-              >
-                {projectName}
-              </Link>
-            ) : (
-              projectName
-            )
-          ) : (
-            "—"
-          )}
-        </Field>
-        <Field label="Tags">
-          {task.tags && task.tags.length > 0 ? (
-            <span className="flex flex-wrap gap-1.5">
-              {task.tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground"
-                >
-                  {tag}
-                </span>
-              ))}
-            </span>
-          ) : (
-            "—"
-          )}
-        </Field>
-      </dl>
-
-      {task.description ? (
-        <section className="mt-10">
-          <SectionHeading>Description</SectionHeading>
-          <p className="mt-3 max-w-prose text-[15px] leading-relaxed text-foreground">
-            {task.description}
-          </p>
-        </section>
+      {saveError ? (
+        <p className="mx-auto mt-4 max-w-prose text-sm text-destructive">{saveError}</p>
       ) : null}
 
-      {items.length > 0 ? (
-        <section className="mt-10">
-          <SectionHeading>
-            Subtasks · {doneCount}/{items.length}
-          </SectionHeading>
-          <ul className="mt-3">
-            <RecursiveItems
+      {editing ? (
+        <div className="mx-auto mt-6 max-w-prose">
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-1 rounded-xl border border-border bg-card p-5 sm:grid-cols-2">
+            <Field label="Priority">
+              <PriorityPicker
+                value={draft.priority}
+                onChange={(p) => setDraft((d) => ({ ...d, priority: p }))}
+              />
+            </Field>
+            <Field label="Assignee">
+              <Input
+                value={draft.assignee}
+                onChange={(e) => setDraft((d) => ({ ...d, assignee: e.target.value }))}
+                placeholder="Assignee"
+                className="h-8 text-sm"
+              />
+            </Field>
+            <Field label="Due date">
+              <Input
+                type="date"
+                value={draft.dueDate}
+                onChange={(e) => setDraft((d) => ({ ...d, dueDate: e.target.value }))}
+                className="h-8 text-sm"
+              />
+            </Field>
+            <Field label="Tags">
+              <Input
+                value={draft.tags}
+                onChange={(e) => setDraft((d) => ({ ...d, tags: e.target.value }))}
+                placeholder="Bug, Feature, …"
+                className="h-8 text-sm"
+              />
+            </Field>
+          </dl>
+
+          <section className="mt-10">
+            <SectionHeading>Source</SectionHeading>
+            <div className="mt-3 space-y-4">
+              <div>
+                <label htmlFor="task-quote" className="text-xs text-muted-foreground">
+                  Verbatim quote
+                </label>
+                <textarea
+                  id="task-quote"
+                  value={draft.quote}
+                  onChange={(e) => setDraft((d) => ({ ...d, quote: e.target.value }))}
+                  rows={2}
+                  placeholder="Exact words this task came from…"
+                  className="mt-1.5 w-full resize-none rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-[15px] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                />
+              </div>
+              <div>
+                <label htmlFor="task-source" className="text-xs text-muted-foreground">
+                  Source note
+                </label>
+                <select
+                  id="task-source"
+                  value={draft.sourceDocId}
+                  onChange={(e) => setDraft((d) => ({ ...d, sourceDocId: e.target.value }))}
+                  className="mt-1.5 h-9 w-full rounded-md border border-input bg-transparent px-2.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <option value="">No source</option>
+                  {spaceDocs.map((doc) => (
+                    <option key={doc.id} value={doc.id}>
+                      {doc.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <section className="mt-10">
+            <SectionHeading>Links &amp; files</SectionHeading>
+            <AttachmentsSection
+              attachments={attachments}
+              added={added}
+              removed={removed}
+              onAdd={(a) => setAdded((prev) => [...prev, a as TaskAttachment])}
+              onRemove={(id) => {
+                const existing = attachments.find((x) => x.id === id);
+                if (existing) {
+                  setRemoved((prev) => {
+                    const next = new Set(prev);
+                    next.add(id);
+                    return next;
+                  });
+                } else {
+                  setAdded((prev) => prev.filter((x) => x.id !== id));
+                }
+              }}
+            />
+          </section>
+        </div>
+      ) : (
+        <>
+          <dl className="mx-auto mt-6 grid grid-cols-2 gap-x-6 gap-y-1 rounded-xl border border-border bg-card p-5 sm:grid-cols-3 lg:grid-cols-5">
+            <Field label="Status">{getStatusLabel(status)}</Field>
+            <Field label="Priority">{task.priority ? priorityCapital(task.priority) : "—"}</Field>
+            <Field label="Assignee">{task.assignee ?? "—"}</Field>
+            <Field label="Due date">{formatDate(task.dueDate) ?? "—"}</Field>
+            <Field label="Tags">
+              {task.tags && task.tags.length > 0 ? (
+                <span className="flex flex-wrap items-center gap-1.5">
+                  {task.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                "—"
+              )}
+            </Field>
+          </dl>
+
+          {task.quote || task.sourceDocId ? (
+            <section className="mx-auto mt-10 max-w-prose">
+              <SectionHeading>Source</SectionHeading>
+              {task.quote ? (
+                <blockquote className="mt-3 border-l-2 border-border pl-4 text-[15px] italic leading-relaxed text-foreground">
+                  “{task.quote}”
+                </blockquote>
+              ) : null}
+              {task.sourceDocId ? (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Captured from{" "}
+                  <Link
+                    href={`/docs/${task.sourceDocId}`}
+                    className="underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                  >
+                    {sourceDocTitle ?? "note"}
+                  </Link>
+                </p>
+              ) : null}
+            </section>
+          ) : null}
+        </>
+      )}
+
+      <section className="mx-auto mt-10 max-w-prose" aria-label="Task body">
+        <SectionHeading>Description</SectionHeading>
+        <div className="mt-2">
+          <TaskDocEditor
+            key={task.id}
+            initialDescription={task.description}
+            saveBody={(description) => updateTask({ id: task.id, description })}
+          />
+        </div>
+      </section>
+
+      <section className="mx-auto mt-10 max-w-prose">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label={subtasksOpen ? "Collapse subtasks" : "Expand subtasks"}
+            onClick={() => setSubtasksOpen((o) => !o)}
+            className={cn(
+              "rounded p-1 text-muted-foreground transition-transform hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              subtasksOpen && "rotate-90"
+            )}
+          >
+            <ChevronDown className="size-4" />
+          </button>
+          <SectionHeading>Subtasks · {doneCount}/{items.length}</SectionHeading>
+        </div>
+        {subtasksOpen ? (
+          <>
+            <SubtaskTree
+              taskId={task.id}
               items={items}
-              parentId={undefined}
               doneMap={itemStates}
               onToggle={toggleItem}
+              onDelete={(id) => {
+                startTransition(async () => {
+                  await deleteTaskItem(task.id, id).catch(() => {});
+                  router.refresh();
+                });
+              }}
             />
-          </ul>
-        </section>
-      ) : null}
+            <AddSubtask taskId={task.id} />
+          </>
+        ) : null}
+      </section>
+
+      <section className="mx-auto mt-10 max-w-prose">
+        <SectionHeading>Links &amp; files</SectionHeading>
+        {attachments.length > 0 ? (
+          <AttachmentShow attachments={attachments} />
+        ) : (
+          <p className="mt-3 text-[15px] text-muted-foreground">Nothing attached yet.</p>
+        )}
+      </section>
 
       {documents.length > 0 ? (
-        <section className="mt-10">
+        <section className="mx-auto mt-10 max-w-prose">
           <SectionHeading>Documents</SectionHeading>
           <ul className="mt-3 divide-y divide-border">
             {documents.map((doc) => (
@@ -375,7 +583,7 @@ export function TaskDetail({
         </section>
       ) : null}
 
-      <section className="mt-10">
+      <section className="mx-auto mt-10 max-w-prose">
         <SectionHeading>Activity</SectionHeading>
 
         <div className="mt-4 rounded-lg border border-border bg-card p-4">
@@ -386,7 +594,7 @@ export function TaskDetail({
             id="comment"
             rows={2}
             className="mt-2 w-full resize-none rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            placeholder={currentAuthor ? `Comment as ${currentAuthor}` : "Write a comment…"}
+            placeholder={authorName ? `Comment as ${authorName}` : "Write a comment…"}
           />
           <div className="mt-2 flex justify-end">
             <Button
@@ -400,10 +608,11 @@ export function TaskDetail({
                 const optimistic: TaskComment = {
                   id: crypto.randomUUID(),
                   taskId: task.id,
-                  author: currentAuthor ?? "You",
+                  author: authorName || "You",
                   text: text.trim().slice(0, 1000),
                   createdAt: new Date().toISOString(),
                 };
+                trackCommentEcho(optimistic.author, optimistic.text);
                 setLocalComments((prev) => [...prev, optimistic]);
                 if (el) el.value = "";
                 startTransition(async () => {
@@ -452,7 +661,14 @@ export function TaskDetail({
             <ul className="mt-2 divide-y divide-border">
               {activity.map((item) => (
                 <li key={item.id} className="flex items-baseline justify-between gap-4 py-2.5">
-                  <span className="text-sm text-foreground">{item.text}</span>
+                  <span className="flex min-w-0 items-baseline gap-2">
+                    {item.author ? (
+                      <span className="shrink-0 rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        {item.author}
+                      </span>
+                    ) : null}
+                    <span className="text-sm text-foreground">{item.text}</span>
+                  </span>
                   <span className="shrink-0 text-xs text-muted-foreground">{item.when}</span>
                 </li>
               ))}
@@ -464,13 +680,6 @@ export function TaskDetail({
   );
 }
 
-function capitalize(s: string) {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function formatDate(date?: string) {
-  if (!date) return null;
-  const d = new Date(date + "T00:00:00");
-  if (isNaN(d.getTime())) return null;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+function priorityCapital(p: TaskPriority) {
+  return p.charAt(0).toUpperCase() + p.slice(1);
 }

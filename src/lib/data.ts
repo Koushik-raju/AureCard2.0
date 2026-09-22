@@ -1,4 +1,5 @@
 import type {
+  DocumentAttachment,
   DocumentBlock,
   DocumentRef,
   Folder,
@@ -7,6 +8,7 @@ import type {
   Space,
   Task,
   TaskActivity,
+  TaskAttachment,
   TaskComment,
   TaskItem,
 } from "@/lib/types";
@@ -63,12 +65,12 @@ export const lists: List[] = [
 ];
 
 export const tasks: Task[] = [
-  { id: "task-rep", title: "Fix Assessment Report", spaceId: "space-work", projectId: "proj-patient", listId: "list-mobile-bugs", status: "in-progress", priority: "high", assignee: "Koushik", tags: ["Bug", "Production"], dueDate: "2026-09-12", startDate: "2026-09-08", description: "Change the \"Start\" button to \"View\" on the production Assessment Report." },
-  { id: "task-login", title: "Fix login", spaceId: "space-work", projectId: "proj-patient", listId: "list-mobile-bugs", status: "todo", priority: "high", assignee: "Koushik", tags: ["Bug"], dueDate: "2026-09-10" },
+  { id: "task-rep", title: "Fix Assessment Report", spaceId: "space-work", projectId: "proj-patient", listId: "list-mobile-bugs", status: "in-progress", priority: "high", assignee: "Koushik", tags: ["Bug", "Production"], dueDate: "2026-09-12", startDate: "2026-09-08", description: "Change the \"Start\" button to \"View\" on the production Assessment Report.", quote: "On the production Assessment Report, the button still says Start instead of View.", sourceDocId: "doc-req" },
+  { id: "task-login", title: "Fix login", spaceId: "space-work", projectId: "proj-patient", listId: "list-mobile-bugs", status: "todo", priority: "high", assignee: "Koushik", tags: ["Bug"], dueDate: "2026-09-10", quote: "Login fails on the second attempt with valid credentials.", sourceDocId: "doc-qa-checklist" },
   { id: "task-register", title: "Patient registration flow", spaceId: "space-work", projectId: "proj-patient", listId: "list-mobile-prio", status: "todo", priority: "high", assignee: "Rashmi", tags: ["Feature"], dueDate: "2026-09-16" },
   { id: "task-crm-doc", title: "Complete CRM documentation", spaceId: "space-work", projectId: "proj-crm", listId: "list-doc-wip", status: "todo", priority: "medium", assignee: "Koushik", dueDate: "2026-09-15" },
-  { id: "task-build", title: "Review developer build", spaceId: "space-work", projectId: "proj-crm", listId: "list-dev-sprint", status: "in-progress", priority: "medium", assignee: "Koushik", dueDate: "2026-09-10" },
-  { id: "task-qa", title: "QA assessment", spaceId: "space-work", projectId: "proj-crm", listId: "list-qa-bugs", status: "todo", priority: "medium", assignee: "Rashmi", dueDate: "2026-09-11" },
+  { id: "task-build", title: "Review developer build", spaceId: "space-work", projectId: "proj-crm", listId: "list-dev-sprint", status: "in-review", priority: "medium", assignee: "Koushik", dueDate: "2026-09-10" },
+  { id: "task-qa", title: "QA assessment", spaceId: "space-work", projectId: "proj-crm", listId: "list-qa-bugs", status: "in-review", priority: "medium", assignee: "Rashmi", dueDate: "2026-09-11" },
   { id: "task-docs", title: "Update documentation", spaceId: "space-work", projectId: "proj-crm", listId: "list-doc-wip", status: "todo", priority: "low", assignee: "Koushik", dueDate: "2026-09-12" },
   { id: "task-table", title: "New table component", spaceId: "space-work", projectId: "proj-crm", listId: "list-dev-backlog", status: "todo", priority: "low", assignee: "Rashmi", tags: ["Enhancement"], dueDate: "2026-09-19" },
   { id: "task-notify", title: "Notification centre", spaceId: "space-work", projectId: "proj-patient", listId: "list-mobile-prio", status: "in-progress", priority: "medium", assignee: "Rashmi", tags: ["Feature"], dueDate: "2026-09-17" },
@@ -77,12 +79,17 @@ export const tasks: Task[] = [
   { id: "task-copy", title: "Write landing copy", spaceId: "space-marketing", projectId: "proj-website", status: "todo", priority: "medium", assignee: "Rashmi", dueDate: "2026-09-14" },
 ];
 
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
+
 export const documents: DocumentRef[] = [
   { id: "doc-req", title: "Assessment Report Requirements", spaceId: "space-work", projectId: "proj-patient", kind: "doc", taskIds: ["task-rep"] },
   { id: "doc-qa-checklist", title: "QA Release Checklist", spaceId: "space-work", projectId: "proj-crm", kind: "doc", taskIds: ["task-qa", "task-login"] },
   { id: "doc-release-notes", title: "Release Notes v2.4", spaceId: "space-product", projectId: "proj-launch", kind: "doc", taskIds: ["task-release"] },
-  { id: "note-meeting", title: "Meeting — Product sync", spaceId: "space-work", kind: "note" },
-  { id: "note-onboarding", title: "Ideas for onboarding flow", spaceId: "space-product", kind: "note" },
+  { id: "note-meeting", title: "Meeting — Product sync", spaceId: "space-work", kind: "note", noteType: "meeting" },
+  { id: "note-onboarding", title: "Ideas for onboarding flow", spaceId: "space-product", kind: "note", noteType: "general" },
+  { id: "rec-today", title: "Recording 21 Sept, 12:17", spaceId: "space-work", kind: "file", recordingType: "thought", durationSecs: 42, summary: "The speaker described a template covering both book and home appointments.", createdAt: hoursAgo(3) },
+  { id: "rec-week-1", title: "Search function broken in new design", spaceId: "space-work", projectId: "proj-patient", kind: "file", recordingType: "thought", durationSecs: 65, summary: "The search function is not working in the organizations client app's new design.", createdAt: hoursAgo(50) },
+  { id: "rec-week-2", title: "Recording 17 Sept, 18:08", spaceId: "space-work", projectId: "proj-patient", kind: "file", recordingType: "thought", durationSecs: 11, summary: "A brief exchange in which a change was requested: rename a button from Start to View.", taskIds: ["task-rep"], createdAt: hoursAgo(96) },
 ];
 
 export const documentBlocks: DocumentBlock[] = [
@@ -185,6 +192,36 @@ export const taskItems: TaskItem[] = [
   { id: "item-reg-2", taskId: "task-register", title: "Add success state", done: false },
 ];
 
+export const taskAttachments: TaskAttachment[] = [
+  { id: "att-rep-1", taskId: "task-rep", kind: "link", url: "https://figma.com/file/atlas/report-v2", label: "Design reference" },
+  {
+    id: "att-rep-2",
+    taskId: "task-rep",
+    kind: "image",
+    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="%23f59e0b" rx="8"/><text x="12" y="36" font-size="16" fill="white">Mockup</text></svg>',
+    label: "Report mockup",
+  },
+];
+
+export const documentAttachments: DocumentAttachment[] = [
+  {
+    id: "da-mem-1",
+    documentId: "doc-req",
+    name: "spec.pdf",
+    mime: "application/pdf",
+    size: 248012,
+    data: "data:application/pdf;base64,JVBERi0xLjQKJcOkw7zDtsOfCjIgMCBvYmoKPDwvTGVuZ3RoIDMgMCBSL0ZpbHRlci9GbGF0ZURlY29kZT4+CnN0cmVhbQp4nDPQM1Qo5ypUMFAwALJMLU31jBQs9YwUDA0ADSgKcwplbmRzdHJlYW0KZW5kb2JqCjMgMCBvYmoKMTAwCmVuZG9iago=",
+  },
+  {
+    id: "da-mem-2",
+    documentId: "doc-req",
+    name: "report-sample.png",
+    mime: "image/png",
+    size: 12600,
+    data: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80"><rect width="160" height="80" fill="%23f59e0b" rx="10"/><text x="14" y="44" font-size="18" fill="white">Report</text></svg>',
+  },
+];
+
 export const taskComments: TaskComment[] = [
   {
     id: "tc-1",
@@ -210,11 +247,11 @@ export const taskComments: TaskComment[] = [
 ];
 
 export const taskActivity: TaskActivity[] = [
-  { id: "ta-1", taskId: "task-rep", text: "Koushik changed the status to In Progress", when: "2 hours ago" },
-  { id: "ta-2", taskId: "task-rep", text: "Koushik updated the due date to Sep 12", when: "2 hours ago" },
-  { id: "ta-3", taskId: "task-rep", text: "Rashmi added a comment", when: "1 hour ago" },
-  { id: "ta-4", taskId: "task-rep", text: "The task was created", when: "Yesterday" },
-  { id: "ta-5", taskId: "task-build", text: "Koushik started the review", when: "30 minutes ago" },
+  { id: "ta-1", taskId: "task-rep", author: "Koushik", text: "Koushik changed the status to In Progress", when: "2 hours ago", createdAt: new Date(Date.now() - 2 * 3600_000).toISOString() },
+  { id: "ta-2", taskId: "task-rep", author: "Koushik", text: "Koushik updated the due date to Sep 12", when: "2 hours ago", createdAt: new Date(Date.now() - 2 * 3600_000).toISOString() },
+  { id: "ta-3", taskId: "task-rep", author: "Rashmi", text: "Rashmi added a comment", when: "1 hour ago", createdAt: new Date(Date.now() - 3600_000).toISOString() },
+  { id: "ta-4", taskId: "task-rep", author: "System", text: "The task was created", when: "Yesterday", createdAt: new Date(Date.now() - 26 * 3600_000).toISOString() },
+  { id: "ta-5", taskId: "task-build", author: "Koushik", text: "Koushik started the review", when: "30 minutes ago", createdAt: new Date(Date.now() - 30 * 60_000).toISOString() },
 ];
 
 export function getTask(id: string): Task | undefined {
@@ -227,6 +264,24 @@ export function getTaskItemsForTask(taskId: string): TaskItem[] {
 
 export function getTaskItems(): TaskItem[] {
   return taskItems;
+}
+
+export function getTaskAttachmentsForTask(taskId: string): TaskAttachment[] {
+  return taskAttachments.filter((a) => a.taskId === taskId);
+}
+
+export function getTaskAttachments(): TaskAttachment[] {
+  return taskAttachments;
+}
+
+export function getDocumentAttachmentsForDocument(
+  documentId: string
+): DocumentAttachment[] {
+  return documentAttachments.filter((a) => a.documentId === documentId);
+}
+
+export function getDocumentAttachments(): DocumentAttachment[] {
+  return documentAttachments;
 }
 
 export function getCommentsForTask(taskId: string): TaskComment[] {
@@ -245,6 +300,8 @@ export function getStatusLabel(status: Task["status"]): string {
   switch (status) {
     case "in-progress":
       return "In Progress";
+    case "in-review":
+      return "In Review";
     case "done":
       return "Done";
     default:
@@ -257,6 +314,7 @@ export function getTaskStatusCounts() {
     total: tasks.length,
     todo: tasks.filter((t) => t.status === "todo").length,
     inProgress: tasks.filter((t) => t.status === "in-progress").length,
+    inReview: tasks.filter((t) => t.status === "in-review").length,
     done: tasks.filter((t) => t.status === "done").length,
   };
 }

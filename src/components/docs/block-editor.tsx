@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTransition } from "react";
-import { Check, Plus } from "lucide-react";
+import { Check, ExternalLink, Link2, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DocumentBlock, DocumentBlockType } from "@/lib/types";
 import { setTaskStatus, useTaskStatusOverrides } from "@/lib/session-store";
+import { STORAGE_MAX_BYTES, uploadMediaFile } from "@/lib/storage";
 import {
   deleteBlock as deleteBlockAction,
   insertBlock as insertBlockAction,
@@ -13,6 +14,7 @@ import {
 } from "@/lib/mutations";
 
 type EditableBlock = DocumentBlock;
+type MediaKind = "image" | "video";
 
 const BLOCK_TYPE_LABEL: Record<DocumentBlockType, string> = {
   heading: "Heading",
@@ -26,6 +28,9 @@ const BLOCK_TYPE_LABEL: Record<DocumentBlockType, string> = {
   divider: "Divider",
   callout: "Callout",
   code: "Code",
+  image: "Image",
+  video: "Video",
+  link: "Link",
 };
 
 const INSERTABLE_TYPES: DocumentBlockType[] = [
@@ -40,6 +45,9 @@ const INSERTABLE_TYPES: DocumentBlockType[] = [
   "callout",
   "code",
   "divider",
+  "image",
+  "video",
+  "link",
 ];
 
 function nextTypeOnEnter(type: DocumentBlockType): DocumentBlockType {
@@ -93,6 +101,8 @@ function placeholderFor(type: DocumentBlockType): string {
       return "Write a callout…";
     case "code":
       return "Type code…";
+    case "link":
+      return "https://…";
     default:
       return "Type '/' for commands, or just write…";
   }
@@ -213,6 +223,10 @@ export function BlockEditor({ documentId, initialBlocks, taskTitles }: BlockEdit
   const [, startTransition] = useTransition();
   const taskOverrides = useTaskStatusOverrides();
   const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const mediaInput = useRef<HTMLInputElement>(null);
+  const pendingMedia = useRef<{ afterId: string; type: MediaKind } | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const [mediaUploading, setMediaUploading] = useState(false);
 
   const updateText = (id: string, text: string) => {
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, text } : b)));
@@ -256,17 +270,57 @@ export function BlockEditor({ documentId, initialBlocks, taskTitles }: BlockEdit
     });
   };
 
-  const insertBlock = (afterId: string, type: DocumentBlockType) => {
-    const block = newBlock(documentId, type);
+  const insertBlock = (
+    afterId: string,
+    type: DocumentBlockType,
+    text = ""
+  ) => {
+    const block = { ...newBlock(documentId, type), text };
+    const idx = blocks.findIndex((b) => b.id === afterId);
+    const position = idx + 1;
     setBlocks((prev) => {
-      const idx = prev.findIndex((b) => b.id === afterId);
+      const i = prev.findIndex((b) => b.id === afterId);
       const next = [...prev];
-      next.splice(idx + 1, 0, block);
+      next.splice(i + 1, 0, block);
       return next;
     });
-    setFocusedId(block.id);
+    if (type !== "image" && type !== "video") setFocusedId(block.id);
     setMenuFor(null);
-    persistInsert(block, blocks.findIndex((b) => b.id === afterId) + 1);
+    persistInsert(block, position);
+  };
+
+  const handleInsert = (afterId: string, type: DocumentBlockType) => {
+    if (type === "image" || type === "video") {
+      pendingMedia.current = { afterId, type };
+      mediaInput.current?.click();
+      return;
+    }
+    insertBlock(afterId, type);
+  };
+
+  const handleMediaPick = (file?: File) => {
+    const target = pendingMedia.current;
+    pendingMedia.current = null;
+    if (!file || !target) return;
+    if (file.size > STORAGE_MAX_BYTES) {
+      setMediaError(`"${file.name}" is too large. Keep media under 50MB.`);
+      return;
+    }
+    setMediaError(null);
+    setMediaUploading(true);
+    uploadMediaFile(file, "blocks")
+      .then((result) => {
+        if ("error" in result) {
+          setMediaError(result.error);
+          return;
+        }
+        insertBlock(target.afterId, target.type, result.url);
+      })
+      .finally(() => setMediaUploading(false));
+  };
+
+  const replaceMedia = (id: string, dataUrl: string) => {
+    updateText(id, dataUrl);
   };
 
   const deleteBlock = (id: string) => {
@@ -345,7 +399,9 @@ export function BlockEditor({ documentId, initialBlocks, taskTitles }: BlockEdit
               onBackspace={() => handleBackspace(block.id)}
               onOpenMenu={() => setMenuFor(block.id)}
               onCloseMenu={() => setMenuFor(null)}
-              onInsert={(type) => insertBlock(block.id, type)}
+              onInsert={(type) => handleInsert(block.id, type)}
+              onReplaceMedia={(dataUrl) => replaceMedia(block.id, dataUrl)}
+              onDeleteBlock={() => deleteBlock(block.id)}
             />
           );
         })}
@@ -360,6 +416,23 @@ export function BlockEditor({ documentId, initialBlocks, taskTitles }: BlockEdit
           <Plus className="size-4" />
           Add block
         </button>
+      ) : null}
+
+      <input
+        ref={mediaInput}
+        type="file"
+        accept="image/*,video/*"
+        className="hidden"
+        onChange={(e) => {
+          handleMediaPick(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+      {mediaUploading ? (
+        <p className="mt-2 text-sm text-muted-foreground">Uploading media…</p>
+      ) : null}
+      {mediaError ? (
+        <p className="mt-2 text-sm text-destructive">{mediaError}</p>
       ) : null}
     </div>
   );
@@ -382,6 +455,8 @@ function BlockRow(props: {
   onOpenMenu: () => void;
   onCloseMenu: () => void;
   onInsert: (type: DocumentBlockType) => void;
+  onReplaceMedia: (dataUrl: string) => void;
+  onDeleteBlock: () => void;
 }) {
   const {
     block,
@@ -400,6 +475,8 @@ function BlockRow(props: {
     onOpenMenu,
     onCloseMenu,
     onInsert,
+    onReplaceMedia,
+    onDeleteBlock,
   } = props;
 
   const editorProps = {
@@ -458,6 +535,8 @@ function BlockRow(props: {
         taskTitle={taskTitle}
         editorProps={editorProps}
         onToggle={onToggle}
+        onReplaceMedia={onReplaceMedia}
+        onDeleteBlock={onDeleteBlock}
       />
     </div>
   );
@@ -470,6 +549,8 @@ function BlockBody({
   taskTitle,
   editorProps,
   onToggle,
+  onReplaceMedia,
+  onDeleteBlock,
 }: {
   block: EditableBlock;
   numbered: number | null;
@@ -477,6 +558,8 @@ function BlockBody({
   taskTitle?: string;
   editorProps: Parameters<typeof BlockTextArea>[0];
   onToggle: () => void;
+  onReplaceMedia: (dataUrl: string) => void;
+  onDeleteBlock: () => void;
 }) {
   switch (block.type) {
     case "heading":
@@ -562,7 +645,118 @@ function BlockBody({
           <BlockTextArea {...editorProps} className="font-mono text-[13px]" />
         </div>
       );
+    case "image":
+    case "video":
+      return (
+        <MediaBlock
+          kind={block.type}
+          src={block.text}
+          onReplace={onReplaceMedia}
+          onDelete={onDeleteBlock}
+        />
+      );
+    case "link":
+      return (
+        <div className="flex w-full items-start gap-2.5 rounded-lg border border-border bg-card px-3 py-2">
+          <Link2 className="mt-1 size-4 shrink-0 text-muted-foreground" />
+          <div className="w-full">
+            <BlockTextArea {...editorProps} className="text-sm font-mono" />
+            {block.text.trim() ? (
+              <a
+                href={block.text.trim()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-0.5 inline-flex max-w-full items-center gap-1 truncate text-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <ExternalLink className="size-3.5 shrink-0" />
+                <span className="truncate">{block.text.trim()}</span>
+              </a>
+            ) : null}
+          </div>
+        </div>
+      );
     default:
       return <BlockTextArea {...editorProps} />;
   }
+}
+
+function MediaBlock({
+  kind,
+  src,
+  onReplace,
+  onDelete,
+}: {
+  kind: MediaKind;
+  src: string;
+  onReplace: (dataUrl: string) => void;
+  onDelete: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [replacing, setReplacing] = useState(false);
+
+  const pick = (file?: File) => {
+    if (!file) return;
+    if (file.size > STORAGE_MAX_BYTES) {
+      setError("File too large. Keep media under 50MB.");
+      return;
+    }
+    setError(null);
+    setReplacing(true);
+    uploadMediaFile(file, "blocks")
+      .then((result) => {
+        if ("error" in result) setError(result.error);
+        else onReplace(result.url);
+      })
+      .finally(() => setReplacing(false));
+  };
+
+  return (
+    <div className="w-full max-w-xl">
+      {kind === "image" ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt=""
+          className="max-h-[480px] w-full rounded-lg border border-border bg-muted object-contain"
+        />
+      ) : (
+        <video
+          src={src}
+          controls
+          className="max-h-[480px] w-full rounded-lg border border-border bg-muted"
+        />
+      )}
+      <div className="mt-1 flex items-center gap-3 text-xs">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Replace {kind}
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Remove
+        </button>
+        <input
+          ref={inputRef}
+          type="file"
+          accept={kind === "video" ? "video/*" : "image/*"}
+          className="hidden"
+          onChange={(e) => {
+            pick(e.target.files?.[0]);
+            e.target.value = "";
+          }}
+        />
+        {replacing ? (
+          <span className="text-muted-foreground">Uploading…</span>
+        ) : null}
+        {error ? <span className="text-destructive">{error}</span> : null}
+      </div>
+    </div>
+  );
 }

@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   Check,
   CircleDot,
+  Eye,
   FileText,
   Folder,
   List,
@@ -39,12 +40,14 @@ export type SearchEntry = {
 const STATUS_ICON: Record<TaskStatus, React.ComponentType<{ className?: string }>> = {
   todo: CircleDot,
   "in-progress": Play,
+  "in-review": Eye,
   done: Check,
 };
 
 const STATUS_COLOR: Record<TaskStatus, string> = {
   todo: "text-muted-foreground",
   "in-progress": "text-primary",
+  "in-review": "text-amber-600",
   done: "text-foreground",
 };
 

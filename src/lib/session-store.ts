@@ -3,9 +3,9 @@ import type { TaskStatus } from "@/lib/types";
 
 /**
  * In-memory session store for task status changes.
- * Wired to a real database in a later phase; for now it lets
- * task toggles made anywhere (e.g. a task block inside a document)
- * stay in sync across views within a session.
+ * Task toggles made anywhere (e.g. a task block inside a document) stay in
+ * sync across views within a session; durable writes go through the
+ * mutations in `@/lib/mutations`.
  */
 
 const listeners = new Set<() => void>();

@@ -1,4 +1,5 @@
 import type {
+  DocumentAttachment,
   DocumentBlock,
   DocumentRef,
   Folder,
@@ -7,6 +8,7 @@ import type {
   Space,
   Task,
   TaskActivity,
+  TaskAttachment,
   TaskComment,
   TaskItem,
 } from "@/lib/types";
@@ -51,6 +53,8 @@ function mapTask(r: Row): Task {
     dueDate: r.due_date ? String(r.due_date) : undefined,
     startDate: r.start_date ? String(r.start_date) : undefined,
     description: r.description ? String(r.description) : undefined,
+    quote: r.quote ? String(r.quote) : undefined,
+    sourceDocId: r.source_doc_id ? String(r.source_doc_id) : undefined,
   };
 }
 
@@ -61,6 +65,10 @@ function mapItem(r: Row): TaskItem {
     parentId: r.parent_id ? String(r.parent_id) : undefined,
     title: String(r.title),
     done: Boolean(r.done),
+    assignee: r.assignee ? String(r.assignee) : undefined,
+    dueDate: r.due_date ? String(r.due_date) : undefined,
+    priority: r.priority ? (r.priority as TaskItem["priority"]) : undefined,
+    description: r.description ? String(r.description) : undefined,
   };
 }
 
@@ -78,10 +86,15 @@ function mapActivity(r: Row): TaskActivity {
   return {
     id: String(r.id),
     taskId: String(r.task_id),
+    author: r.author ? String(r.author) : "System",
     text: String(r.text),
     when: String(r.when),
+    createdAt: r.created_at ? String(r.created_at) : undefined,
   };
 }
+
+const RECORDING_TYPES = new Set(["meeting", "call", "thought", "lecture"]);
+const NOTE_TYPES = new Set(["general", "meeting", "soap"]);
 
 function mapDocument(r: Row): DocumentRef {
   return {
@@ -91,6 +104,15 @@ function mapDocument(r: Row): DocumentRef {
     projectId: r.project_id ? String(r.project_id) : undefined,
     kind: (r.kind ?? "doc") as DocumentRef["kind"],
     taskIds: Array.isArray(r.task_ids) ? r.task_ids.map((t) => String(t)) : undefined,
+    createdAt: r.created_at ? String(r.created_at) : undefined,
+    recordingType: typeof r.recording_type === "string" && RECORDING_TYPES.has(r.recording_type)
+      ? (r.recording_type as DocumentRef["recordingType"])
+      : undefined,
+    durationSecs: r.duration_secs !== null && r.duration_secs !== undefined ? Number(r.duration_secs) : undefined,
+    summary: r.summary ? String(r.summary) : undefined,
+    noteType: typeof r.note_type === "string" && NOTE_TYPES.has(r.note_type)
+      ? (r.note_type as DocumentRef["noteType"])
+      : undefined,
   };
 }
 
@@ -102,6 +124,27 @@ function mapBlock(r: Row): DocumentBlock {
     text: String(r.text ?? ""),
     checked: Boolean(r.checked),
     taskId: r.task_id ? String(r.task_id) : undefined,
+  };
+}
+
+function mapAttachment(r: Row): TaskAttachment {
+  return {
+    id: String(r.id),
+    taskId: String(r.task_id),
+    kind: (r.kind ?? "link") as TaskAttachment["kind"],
+    url: String(r.url),
+    label: r.label ? String(r.label) : undefined,
+  };
+}
+
+function mapDocAttachment(r: Row): DocumentAttachment {
+  return {
+    id: String(r.id),
+    documentId: String(r.document_id),
+    name: String(r.name),
+    mime: String(r.mime ?? ""),
+    size: Number(r.size ?? 0),
+    data: String(r.data ?? ""),
   };
 }
 
@@ -177,6 +220,16 @@ export async function getDocuments(): Promise<DocumentRef[]> {
 export async function getDocumentBlocks(): Promise<DocumentBlock[]> {
   if (!isDbConfigured) return memory.documentBlocks;
   return queryAll("document_blocks", mapBlock, { column: "position" });
+}
+
+export async function getTaskAttachments(): Promise<TaskAttachment[]> {
+  if (!isDbConfigured) return memory.taskAttachments;
+  return queryAll("task_attachments", mapAttachment, { column: "position" });
+}
+
+export async function getDocumentAttachments(): Promise<DocumentAttachment[]> {
+  if (!isDbConfigured) return memory.documentAttachments;
+  return queryAll("document_attachments", mapDocAttachment, { column: "position" });
 }
 
 // ---------- Lookups ----------
@@ -268,6 +321,18 @@ export async function getTaskItemsForTask(taskId: string): Promise<TaskItem[]> {
   return all.filter((i) => i.taskId === taskId);
 }
 
+export async function getTaskAttachmentsForTask(taskId: string): Promise<TaskAttachment[]> {
+  const all = await getTaskAttachments();
+  return all.filter((a) => a.taskId === taskId);
+}
+
+export async function getDocumentAttachmentsForDocument(
+  documentId: string
+): Promise<DocumentAttachment[]> {
+  const all = await getDocumentAttachments();
+  return all.filter((a) => a.documentId === documentId);
+}
+
 export async function getCommentsForTask(taskId: string): Promise<TaskComment[]> {
   const all = await getComments();
   return all.filter((c) => c.taskId === taskId);
@@ -296,12 +361,13 @@ export async function getBlocksForDocument(documentId: string): Promise<Document
   return all.filter((b) => b.documentId === documentId);
 }
 
-export async function getTaskStatusCounts(): Promise<{ total: number; todo: number; inProgress: number; done: number }> {
+export async function getTaskStatusCounts(): Promise<{ total: number; todo: number; inProgress: number; inReview: number; done: number }> {
   const all = await getTasks();
   return {
     total: all.length,
     todo: all.filter((t) => t.status === "todo").length,
     inProgress: all.filter((t) => t.status === "in-progress").length,
+    inReview: all.filter((t) => t.status === "in-review").length,
     done: all.filter((t) => t.status === "done").length,
   };
 }

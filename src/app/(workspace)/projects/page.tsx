@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getSpaces, getProjects, getTasks } from "@/lib/repository";
 import { CreateProjectButton } from "@/components/create/create-project-form";
+import { ProjectMenu } from "@/components/create/entity-menus";
 import { accentStyles } from "@/lib/accents";
 
 export default async function ProjectsPage() {
@@ -15,7 +16,7 @@ export default async function ProjectsPage() {
     tasksByProject.set(t.projectId, (tasksByProject.get(t.projectId) ?? 0) + 1);
   }
   return (
-    <div className="mx-auto w-full max-w-4xl px-6 py-10 sm:py-14">
+    <div className="mx-auto w-full max-w-5xl px-6 py-10 sm:py-14">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-serif text-3xl font-medium tracking-tight sm:text-4xl">
@@ -44,23 +45,34 @@ export default async function ProjectsPage() {
               {spaceProjects.map((project) => {
                 const taskCount = tasksByProject.get(project.id) ?? 0;
                 return (
-                  <Link
+                  <div
                     key={project.id}
-                    href={`/projects/${project.id}`}
-                    className="group rounded-xl border border-border bg-card p-5 transition-all hover:border-muted-foreground/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="group relative rounded-xl border border-border bg-card p-5 transition-all hover:border-muted-foreground/30 hover:shadow-sm"
                   >
-                    <h3 className="truncate text-base font-medium group-hover:text-primary">
-                      {project.name}
-                    </h3>
-                    {project.description ? (
-                      <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
-                        {project.description}
-                      </p>
-                    ) : null}
-                    <div className="mt-4 text-xs text-muted-foreground">
-                      {taskCount} tasks
-                    </div>
-                  </Link>
+                    <Link
+                      href={`/projects/${project.id}`}
+                      className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                    >
+                      <h3 className="truncate pr-8 text-base font-medium group-hover:text-primary">
+                        {project.name}
+                      </h3>
+                      {project.description ? (
+                        <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+                          {project.description}
+                        </p>
+                      ) : null}
+                      <div className="mt-4 text-xs text-muted-foreground">
+                        {taskCount} tasks
+                      </div>
+                    </Link>
+                    <span className="absolute right-2 top-2">
+                      <ProjectMenu
+                        projectId={project.id}
+                        projectName={project.name}
+                        onDeleteRedirect="/projects"
+                      />
+                    </span>
+                  </div>
                 );
               })}
             </div>

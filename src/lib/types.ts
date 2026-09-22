@@ -29,8 +29,18 @@ export type List = {
   spaceId: string;
 };
 
-export type TaskStatus = "todo" | "in-progress" | "done";
+export type TaskStatus = "todo" | "in-progress" | "in-review" | "done";
 export type TaskPriority = "low" | "medium" | "high";
+
+export type TaskAttachmentKind = "image" | "video" | "link";
+
+export type TaskAttachment = {
+  id: string;
+  taskId: string;
+  kind: TaskAttachmentKind;
+  url: string;
+  label?: string;
+};
 
 export type Task = {
   id: string;
@@ -45,6 +55,20 @@ export type Task = {
   dueDate?: string;
   startDate?: string;
   description?: string;
+  /** Verbatim quote this task was captured from (Aure-style provenance). */
+  quote?: string;
+  /** Document/note this task was captured from. */
+  sourceDocId?: string;
+};
+
+export type DocumentAttachment = {
+  id: string;
+  documentId: string;
+  name: string;
+  mime: string;
+  size: number;
+  /** File contents as a data URL. */
+  data: string;
 };
 
 export type TaskItem = {
@@ -55,6 +79,11 @@ export type TaskItem = {
   parentId?: string;
   title: string;
   done: boolean;
+  assignee?: string;
+  dueDate?: string;
+  priority?: TaskPriority;
+  /** Notion-style body blocks stored as a JSON envelope (see `@/lib/task-body`). */
+  description?: string;
 };
 
 export type TaskComment = {
@@ -68,8 +97,11 @@ export type TaskComment = {
 export type TaskActivity = {
   id: string;
   taskId: string;
+  author: string;
   text: string;
   when: string;
+  /** ISO timestamp for grouping history by day (DB only). */
+  createdAt?: string;
 };
 
 export type DocumentRef = {
@@ -77,10 +109,24 @@ export type DocumentRef = {
   title: string;
   spaceId: string;
   projectId?: string;
-  kind: "doc" | "note";
+  kind: "doc" | "note" | "file";
   /** Tasks this document is linked to. */
   taskIds?: string[];
+  /** ISO timestamp for library time grouping (DB only; absent on old rows). */
+  createdAt?: string;
+  /** Aure-style filing for recordings: what the note sounds like. */
+  recordingType?: RecordingType;
+  /** Recording length in seconds (audio/file docs). */
+  durationSecs?: number;
+  /** One-line summary preview for recording cards. */
+  summary?: string;
+  /** Template used for typed notes. */
+  noteType?: NoteType;
 };
+
+export type RecordingType = "meeting" | "call" | "thought" | "lecture";
+
+export type NoteType = "general" | "meeting" | "soap";
 
 export type DocumentBlockType =
   | "heading"
@@ -93,7 +139,10 @@ export type DocumentBlockType =
   | "divider"
   | "callout"
   | "code"
-  | "task";
+  | "task"
+  | "image"
+  | "video"
+  | "link";
 
 export type DocumentBlock = {
   id: string;

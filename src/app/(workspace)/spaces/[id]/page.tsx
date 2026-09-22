@@ -1,22 +1,21 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import {
   getSpace,
   getProjectsForSpace,
   getTasksForSpace,
   getDocsForSpace,
+  getTaskItems,
 } from "@/lib/repository";
+import type { TaskItem } from "@/lib/types";
 import { CreateProjectButton } from "@/components/create/create-project-form";
 import { CreateTaskButton } from "@/components/create/create-task-form";
+import { SpaceMenu } from "@/components/create/entity-menus";
+import { SpaceHeaderEditor } from "@/components/create/inline-editor";
+import { GroupedTaskList } from "@/components/tasks/grouped-task-list";
 import { accentStyles } from "@/lib/accents";
 import { cn } from "@/lib/utils";
-
-const STATUS_LABEL: Record<string, string> = {
-  todo: "To do",
-  "in-progress": "In progress",
-  done: "Done",
-};
 
 function SectionHeading({
   title,
@@ -53,10 +52,16 @@ export default async function SpaceDetailPage({
       import("@/lib/repository").then((m) => m.getProjects()),
     ]);
 
+  const taskItems = await getTaskItems();
+  const itemsByTask: Record<string, TaskItem[]> = {};
+  for (const item of taskItems) {
+    (itemsByTask[item.taskId] ??= []).push(item);
+  }
+
   const accent = accentStyles(space.accent);
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-8 sm:py-10">
+    <div className="mx-auto w-full max-w-5xl px-6 py-8 sm:py-10">
       <nav className="mb-6">
         <Link
           href="/spaces"
@@ -68,25 +73,27 @@ export default async function SpaceDetailPage({
       </nav>
 
       <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <span className={`size-3 rounded-full ${accent.dot}`} aria-hidden="true" />
-            <h1 className="font-serif text-3xl font-medium tracking-tight sm:text-4xl">
-              {space.name}
-            </h1>
-          </div>
-          <p className="mt-3 max-w-prose text-[15px] leading-relaxed text-muted-foreground">
-            {space.description}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <CreateTaskButton
-            spaces={allSpaces}
-            projects={allProjects}
-            defaultSpaceId={space.id}
-          />
-          <CreateProjectButton spaces={allSpaces} />
-        </div>
+        <SpaceHeaderEditor
+          spaceId={space.id}
+          name={space.name}
+          description={space.description}
+          marker={<span className={`size-3 rounded-full ${accent.dot}`} aria-hidden="true" />}
+          actions={
+            <div className="flex flex-wrap items-center gap-2">
+              <CreateTaskButton
+                spaces={allSpaces}
+                projects={allProjects}
+                defaultSpaceId={space.id}
+              />
+              <CreateProjectButton spaces={allSpaces} defaultSpaceId={space.id} />
+              <SpaceMenu
+                spaceId={space.id}
+                spaceName={space.name}
+                onDeleteRedirect="/spaces"
+              />
+            </div>
+          }
+        />
       </header>
 
       <section className="mt-10">
@@ -123,50 +130,7 @@ export default async function SpaceDetailPage({
 
       <section className="mt-10">
         <SectionHeading title="Tasks" count={spaceTasks.length} />
-        <ul className="mt-3 divide-y divide-border">
-          {spaceTasks.map((task) => (
-            <li key={task.id} className="flex items-center gap-3 py-3">
-              <span
-                className={cn(
-                  "flex size-4 shrink-0 items-center justify-center rounded-sm border",
-                  task.status === "done"
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-muted-foreground/40"
-                )}
-                aria-hidden="true"
-              >
-                {task.status === "done" ? (
-                  <Check className="size-3" strokeWidth={3} />
-                ) : null}
-              </span>
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span
-                  className={cn(
-                    "truncate text-[15px] leading-snug",
-                    task.status === "done" && "text-muted-foreground line-through"
-                  )}
-                >
-                  {task.title}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {STATUS_LABEL[task.status]}
-                  {task.priority ? ` · ${task.priority}` : ""}
-                </span>
-              </div>
-              {task.dueDate ? (
-                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                  {new Date(task.dueDate + "T00:00:00").toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </span>
-              ) : null}
-            </li>
-          ))}
-          {spaceTasks.length === 0 ? (
-            <li className="py-3 text-sm text-muted-foreground">No tasks yet.</li>
-          ) : null}
-        </ul>
+        <GroupedTaskList tasks={spaceTasks} itemsByTask={itemsByTask} />
       </section>
 
       <section className="mt-10">
@@ -182,7 +146,7 @@ export default async function SpaceDetailPage({
                 {doc.title}
               </Link>
               <span className="ml-auto text-xs text-muted-foreground">
-                {doc.kind === "note" ? "Note" : "Doc"}
+                {doc.kind === "note" ? "Note" : doc.kind === "file" ? "File" : "Doc"}
               </span>
             </li>
           ))}

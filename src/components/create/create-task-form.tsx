@@ -99,6 +99,7 @@ export function CreateTaskButton({
               options={[
                 { value: "todo", label: "To Do" },
                 { value: "in-progress", label: "In Progress" },
+                { value: "in-review", label: "In Review" },
                 { value: "done", label: "Done" },
               ]}
             />
