@@ -85,12 +85,10 @@ export function ProjectMenu({
 export function TaskMenu({
   taskId,
   taskTitle,
-  placement = "fixed",
   onOpenChange,
 }: {
   taskId: string;
   taskTitle: string;
-  placement?: "fixed" | "inline";
   onOpenChange?: (open: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -101,7 +99,6 @@ export function TaskMenu({
   return (
     <span className="relative inline-flex">
       <EntityMenu
-        placement={placement}
         onOpenChange={(menuOpen) => onOpenChange?.(menuOpen || editing)}
         onEdit={() => setEditing(true)}
         onDelete={() => deleteTask(taskId)}

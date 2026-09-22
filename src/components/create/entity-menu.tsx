@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useTransition, useId, createContext, useContext } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { MoreHorizontal, Pencil, Trash2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,14 +15,11 @@ export function Dropdown({
   trigger,
   children,
   align = "right",
-  placement = "fixed",
   onOpenChange,
 }: {
   trigger: React.ReactNode;
   children: React.ReactNode;
   align?: "left" | "right";
-  /** "inline" pins the menu under the trigger with pure CSS (no measuring). */
-  placement?: "fixed" | "inline";
   onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -33,7 +31,13 @@ export function Dropdown({
   useEffect(() => {
     closeRef.current = close;
   });
-  const inline = placement === "inline";
+  const [mounted, setMounted] = useState(false);
+  // Portals can't hydrate (no SSR HTML for body-level content), so mount-gating
+  // needs the effect — this is the standard documented workaround.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     onOpenChange?.(open);
@@ -77,7 +81,7 @@ export function Dropdown({
   }, [align]);
 
   useEffect(() => {
-    if (!open || inline) return;
+    if (!open) return;
     position();
     window.addEventListener("scroll", position, true);
     window.addEventListener("resize", position);
@@ -85,13 +89,12 @@ export function Dropdown({
       window.removeEventListener("scroll", position, true);
       window.removeEventListener("resize", position);
     };
-  }, [open, position, inline]);
+  }, [open, position]);
 
   // Re-anchor after every render while open: row expand/collapse, add-forms
   // and list updates shift the trigger without firing scroll/resize.
-  // (Fixed placement only — inline is CSS-pinned and never drifts.)
   useEffect(() => {
-    if (open && !inline) position();
+    if (open) position();
   });
 
   return (
@@ -99,31 +102,23 @@ export function Dropdown({
       <span ref={triggerRef} className="relative inline-flex">
         <span onClick={() => setOpen((o) => !o)}>{trigger}</span>
       </span>
-      {open ? (
-        <>
-          <div className="fixed inset-0 z-40" onClick={close} aria-hidden="true" />
-          {inline ? (
-            <div
-              role="menu"
-              id={id}
-              style={{ width: 192 }}
-              className="absolute right-0 top-full z-50 mt-1 rounded-lg border border-border bg-popover p-1 shadow-lg"
-            >
-              {children}
-            </div>
-          ) : (
-            <div
-              ref={menuRef}
-              role="menu"
-              id={id}
-              style={{ width: 192, maxHeight: 320, overflowY: "auto", visibility: "hidden" }}
-              className="fixed z-50 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg"
-            >
-              {children}
-            </div>
-          )}
-        </>
-      ) : null}
+      {open && mounted
+        ? createPortal(
+            <>
+              <div className="fixed inset-0 z-40" onClick={close} aria-hidden="true" />
+              <div
+                ref={menuRef}
+                role="menu"
+                id={id}
+                style={{ width: 192, maxHeight: 320, overflowY: "auto", visibility: "hidden" }}
+                className="fixed z-50 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-xl"
+              >
+                {children}
+              </div>
+            </>,
+            document.body
+          )
+        : null}
     </DropdownContext.Provider>
   );
 }
@@ -172,7 +167,6 @@ export function EntityMenu({
   onEdit,
   deleteLabel = "Delete",
   hasEdit = true,
-  placement = "fixed",
   onOpenChange,
 }: {
   onDelete: () => Promise<{ error?: string }>;
@@ -180,12 +174,10 @@ export function EntityMenu({
   onEdit: () => void;
   deleteLabel?: string;
   hasEdit?: boolean;
-  placement?: "fixed" | "inline";
   onOpenChange?: (open: boolean) => void;
 }) {
   return (
     <Dropdown
-      placement={placement}
       onOpenChange={onOpenChange}
       trigger={
         <Button variant="ghost" size="icon" aria-label="Actions">

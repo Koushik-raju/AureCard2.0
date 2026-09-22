@@ -917,7 +917,7 @@ function TaskRow({
         >
           <Pencil className="size-3.5" />
         </button>
-        <TaskMenu taskId={task.id} taskTitle={task.title} placement="inline" onOpenChange={setRowMenuOpen} />
+        <TaskMenu taskId={task.id} taskTitle={task.title} onOpenChange={setRowMenuOpen} />
       </span>
 
       {expanded ? (

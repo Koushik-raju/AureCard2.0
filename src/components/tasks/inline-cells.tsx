@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, Plus, X } from "lucide-react";
 import { parseAssignees } from "@/lib/assignees";
 import { AssigneeAvatar } from "./hues";
@@ -75,23 +76,37 @@ export function CellShell({
     if (open) position();
   });
 
+  // Portaled while open: the overlay + menu live on document.body so no
+  // ancestor (opacity, filter, transform, overflow) can trap them underneath
+  // column content. SSR-safe via the mounted flag.
+  const [mounted, setMounted] = useState(false);
+  // Portals can't hydrate (no SSR HTML for body-level content), so mount-gating
+  // needs the effect — this is the standard documented workaround.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   return (
     <>
       <span ref={triggerRef} className="min-w-0">
         {display}
       </span>
-      {open ? (
-        <>
-          <span className="fixed inset-0 z-40" onClick={onClose} aria-hidden="true" />
-          <span
-            ref={menuRef}
-            className="fixed z-50 rounded-lg border border-border bg-popover p-1.5 shadow-lg"
-            style={{ width, maxHeight: 320, overflowY: "auto", visibility: "hidden" }}
-          >
-            {editor}
-          </span>
-        </>
-      ) : null}
+      {open && mounted
+        ? createPortal(
+            <>
+              <span className="fixed inset-0 z-40" onClick={onClose} aria-hidden="true" />
+              <span
+                ref={menuRef}
+                className="fixed z-50 rounded-lg border border-border bg-popover p-1.5 shadow-xl"
+                style={{ width, maxHeight: 320, overflowY: "auto", visibility: "hidden" }}
+              >
+                {editor}
+              </span>
+            </>,
+            document.body
+          )
+        : null}
     </>
   );
 }
