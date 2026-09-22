@@ -5,14 +5,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CalendarDays, Check, ChevronDown, Flag, ListTodo, MessageSquare, Paperclip, Pencil, Plus, UserRound, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CellInput, CellShell } from "./inline-cells";
-import { AssigneeAvatar, PriorityFlag, TagPill, statusHue } from "./hues";
+import { AssigneeEditor, CellInput, CellShell } from "./inline-cells";
+import { AssigneeAvatar, AssigneeStack, PriorityFlag, TagPill, statusHue } from "./hues";
+import { formatAssignees, getTaskAssignees, parseAssignees } from "@/lib/assignees";
 import type { Task, TaskItem, TaskPriority, TaskStatus } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
 import { setTaskStatus as setSessionTaskStatus } from "@/lib/session-store";
 import { createTask, createTaskItem, deleteTask, updateTask, updateTaskItemDone, type EditTaskInput } from "@/lib/mutations";
 import { formatShortDate } from "./task-visuals";
-import { TaskCheckbox } from "./task-checkbox";
 import { DeleteSubtask } from "./task-fields";
 import { TaskMenu } from "@/components/create/entity-menus";
 
@@ -45,6 +45,20 @@ type TaskPatch = Omit<EditTaskInput, "id">;
 function priorityLabel(p?: TaskPriority): string {
   if (!p) return "—";
   return p.charAt(0).toUpperCase() + p.slice(1);
+}
+
+/** Small ClickUp-style status box: click opens the status dropdown. */
+function statusBox(s: TaskStatus): string {
+  switch (s) {
+    case "done":
+      return "border-primary bg-primary text-primary-foreground";
+    case "in-progress":
+      return "border-blue-500 text-blue-500";
+    case "in-review":
+      return "border-amber-500 text-amber-500";
+    default:
+      return "border-muted-foreground/40 text-transparent";
+  }
 }
 
 export function GroupedTaskList({
@@ -86,7 +100,12 @@ export function GroupedTaskList({
           title: p.title ?? t.title,
           status: p.status ?? t.status,
           priority: "priority" in p ? (p.priority ?? undefined) : t.priority,
-          assignee: "assignee" in p ? (p.assignee ?? undefined) : t.assignee,
+          assignee: "assignees" in p || "assignee" in p
+            ? ((p.assignees ?? (p.assignee != null ? parseAssignees(p.assignee) : undefined))?.[0] ?? undefined)
+            : t.assignee,
+          assignees: "assignees" in p || "assignee" in p
+            ? (p.assignees ?? (p.assignee != null ? parseAssignees(p.assignee) : undefined))
+            : (t.assignees ?? (t.assignee ? parseAssignees(t.assignee) : undefined)),
           description: p.description ?? t.description,
           dueDate: "dueDate" in p ? (p.dueDate ?? undefined) : t.dueDate,
           tags: p.tags ?? t.tags,
@@ -114,6 +133,20 @@ export function GroupedTaskList({
   })).filter((group) => group.items.length > 0);
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
+
+  const knownAssignees = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const t of tasks) {
+      for (const name of getTaskAssignees(t)) {
+        const key = name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(name);
+      }
+    }
+    return out.sort((a, b) => a.localeCompare(b)).slice(0, 20);
+  }, [tasks]);
 
   function toggleSelect(id: string) {
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -235,14 +268,14 @@ export function GroupedTaskList({
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-border">
-        <div className="min-w-[880px]">
+        <div className="min-w-[760px]">
           <div
             role="row"
-            className="grid grid-cols-[32px_minmax(0,1fr)_128px_128px_110px_104px_150px] items-center gap-2 border-b border-border bg-muted/50 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
+            className="grid grid-cols-[20px_32px_minmax(0,1fr)_128px_110px_104px_150px] items-center gap-2 border-b border-border bg-muted/50 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
           >
             <span aria-hidden="true" />
+            <span aria-hidden="true" />
             <span>Task</span>
-            <span>Status</span>
             <span>Assignee</span>
             <span>Due</span>
             <span>Priority</span>
@@ -286,6 +319,7 @@ export function GroupedTaskList({
                         attachmentCount={attachmentCounts?.get(task.id) ?? 0}
                         commentCount={commentCounts?.get(task.id) ?? 0}
                         selected={selectedSet.has(task.id)}
+                        knownAssignees={knownAssignees}
                         openCell={openCell?.taskId === task.id ? openCell.cell : null}
                         draftCell={draftCell}
                         disabled={isPending}
@@ -416,6 +450,39 @@ export function GroupedTaskList({
   );
 }
 
+function AssigneeCellButton({
+  task,
+  disabled,
+  onOpen,
+}: {
+  task: Task;
+  disabled: boolean;
+  onOpen: () => void;
+}) {
+  const owners = getTaskAssignees(task);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      disabled={disabled}
+      className="flex max-w-full items-center gap-1.5 rounded-md px-1 py-1 text-left text-[13px] hover:bg-muted"
+      title={owners.length > 0 ? owners.join(", ") : "Set assignees"}
+    >
+      {owners.length > 0 ? (
+        <>
+          <AssigneeStack names={owners} size="sm" max={3} />
+          <span className="truncate">
+            {owners.slice(0, 2).join(", ")}
+            {owners.length > 2 ? ` +${owners.length - 2}` : ""}
+          </span>
+        </>
+      ) : (
+        <UserRound className="size-4 text-muted-foreground/40" aria-label="No assignee" />
+      )}
+    </button>
+  );
+}
+
 function TaskRow({
   task,
   linkToTask,
@@ -426,6 +493,7 @@ function TaskRow({
   attachmentCount,
   commentCount,
   selected,
+  knownAssignees,
   openCell,
   draftCell,
   disabled,
@@ -444,6 +512,7 @@ function TaskRow({
   attachmentCount: number;
   commentCount: number;
   selected: boolean;
+  knownAssignees?: string[];
   openCell: CellKind | null;
   draftCell: string;
   disabled: boolean;
@@ -501,11 +570,41 @@ function TaskRow({
     >
       <div
         role="row"
-        className="grid grid-cols-[32px_minmax(0,1fr)_128px_128px_110px_104px_150px] items-center gap-2 px-3 py-2"
+        className="grid grid-cols-[20px_32px_minmax(0,1fr)_128px_110px_104px_150px] items-center gap-2 px-3 py-2"
       >
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        aria-expanded={expanded}
+        aria-label={expanded ? `Collapse subtasks for ${task.title}` : `Expand subtasks for ${task.title}`}
+        title={expanded ? "Collapse subtasks" : "Expand subtasks"}
+        className={cn(
+          "rounded p-0.5 text-muted-foreground transition-all hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          expanded ? "opacity-100" : "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 max-sm:opacity-100"
+        )}
+      >
+        <ChevronDown
+          className={cn("size-3.5 transition-transform", !expanded && "-rotate-90")}
+        />
+      </button>
       <span className="relative flex items-center">
         <span className={cn("flex items-center", !selected && "group-hover:opacity-0")}>
-          <TaskCheckbox taskId={task.id} status={task.status} />
+          <button
+            type="button"
+            onClick={() => onOpenCell("status", task.status)}
+            disabled={disabled}
+            aria-haspopup="menu"
+            aria-expanded={openCell === "status"}
+            aria-label={`Change status, currently ${getStatusLabel(task.status)}`}
+            title={getStatusLabel(task.status)}
+            className={cn(
+              "flex size-4 shrink-0 items-center justify-center rounded-sm border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60",
+              statusBox(task.status),
+              task.status !== "done" && "hover:border-muted-foreground/70"
+            )}
+          >
+            {task.status === "done" ? <Check className="size-3" strokeWidth={3} /> : null}
+          </button>
         </span>
         <input
           type="checkbox"
@@ -520,7 +619,25 @@ function TaskRow({
         />
       </span>
 
-      <span className="min-w-0">
+      <CellShell
+        open={openCell === "status"}
+        onClose={onCloseCell}
+        display={
+      <span className="flex min-w-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onOpenCell("status", task.status)}
+          disabled={disabled}
+          aria-label={`Change status, currently ${getStatusLabel(task.status)}`}
+          title={getStatusLabel(task.status)}
+          className={cn(
+            "flex size-4 shrink-0 items-center justify-center rounded-full border-2 transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            statusBox(task.status)
+          )}
+        >
+          {task.status === "done" ? <Check className="size-2.5 text-white" strokeWidth={4} /> : null}
+        </button>
+      <span className="min-w-0 flex-1">
         {renaming ? (
           <form
             className="flex min-w-0 items-center gap-1"
@@ -599,23 +716,7 @@ function TaskRow({
           </span>
         )}
       </span>
-
-      <CellShell
-        open={openCell === "status"}
-        onClose={onCloseCell}
-        display={
-          <button
-            type="button"
-            onClick={() => onOpenCell("status", task.status)}
-            disabled={disabled}
-            className={cn(
-              "inline-flex max-w-full items-center gap-1 truncate rounded-full px-2.5 py-1 text-xs font-medium transition-opacity hover:opacity-80",
-              statusHue(task.status)
-            )}
-          >
-            <span className="truncate">{getStatusLabel(task.status)}</span>
-            <ChevronDown className="size-3 shrink-0" />
-          </button>
+      </span>
         }
         editor={
           <div className="flex flex-col gap-1 p-0.5">
@@ -650,31 +751,22 @@ function TaskRow({
       <CellShell
         open={openCell === "assignee"}
         onClose={onCloseCell}
+        wide
         display={
-          <button
-            type="button"
-            onClick={() => onOpenCell("assignee", task.assignee ?? "")}
+          <AssigneeCellButton
+            task={task}
             disabled={disabled}
-            className="flex max-w-full items-center gap-1.5 rounded-md px-1 py-1 text-left text-[13px] hover:bg-muted"
-            title={task.assignee || "Set assignee"}
-          >
-            {task.assignee ? (
-              <>
-                <AssigneeAvatar name={task.assignee} size="sm" />
-                <span className="truncate">{task.assignee}</span>
-              </>
-            ) : (
-              <UserRound className="size-4 text-muted-foreground/40" aria-label="No assignee" />
-            )}
-          </button>
+            onOpen={() => onOpenCell("assignee", formatAssignees(getTaskAssignees(task)))}
+          />
         }
         editor={
-          <CellInput
-            value={draftCell}
-            onChange={onDraftCell}
-            placeholder="Assignee"
-            onSave={() => onCommit({ assignee: draftCell.trim() || null })}
+          <AssigneeEditor
+            initial={getTaskAssignees(task)}
+            suggestions={knownAssignees}
             onCancel={onCloseCell}
+            onSave={(list) => {
+              onCommit({ assignees: list, assignee: list[0] ?? null } as TaskPatch);
+            }}
           />
         }
       />

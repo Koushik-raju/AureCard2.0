@@ -10,6 +10,7 @@ import { updateTaskStatus } from "@/lib/mutations";
 import { PriorityDot, formatShortDate } from "./task-visuals";
 import { SubtaskInline } from "./subtask-inline";
 import { SourceLine, WhoBadge } from "./task-meta";
+import { getTaskAssignees } from "@/lib/assignees";
 
 const COLUMNS: TaskStatus[] = ["todo", "in-progress", "in-review", "done"];
 
@@ -165,7 +166,7 @@ export function TaskBoardView({ tasks, projectName, spaceName, itemsByTask, docT
                   />
                   <div className="mt-3 flex items-center gap-2">
                     <PriorityDot priority={task.priority} className="mr-1" />
-                    <WhoBadge assignee={task.assignee} open={task.status !== "done"} />
+                    <WhoBadge assignee={task.assignee} assignees={task.assignees} open={task.status !== "done"} />
                     {task.dueDate ? (
                       <span className="text-xs tabular-nums text-muted-foreground">
                         {formatShortDate(task.dueDate)}
@@ -176,9 +177,28 @@ export function TaskBoardView({ tasks, projectName, spaceName, itemsByTask, docT
                       items={itemsByTask?.[task.id] ?? []}
                       brief
                     />
-                    {task.assignee ? (
-                      <span className="ml-auto flex size-5 items-center justify-center rounded-full bg-secondary text-[10px] font-medium text-muted-foreground">
-                        {initials(task.assignee)}
+                    {getTaskAssignees(task).length > 0 ? (
+                      <span
+                        className="ml-auto flex items-center"
+                        title={getTaskAssignees(task).join(", ")}
+                      >
+                        <span className="flex -space-x-1.5">
+                          {getTaskAssignees(task)
+                            .slice(0, 3)
+                            .map((name) => (
+                              <span
+                                key={name}
+                                className="flex size-5 items-center justify-center rounded-full bg-secondary text-[10px] font-medium text-muted-foreground ring-2 ring-card"
+                              >
+                                {initials(name)}
+                              </span>
+                            ))}
+                        </span>
+                        {getTaskAssignees(task).length > 3 ? (
+                          <span className="ml-1 text-[10px] text-muted-foreground">
+                            +{getTaskAssignees(task).length - 3}
+                          </span>
+                        ) : null}
                       </span>
                     ) : null}
                   </div>

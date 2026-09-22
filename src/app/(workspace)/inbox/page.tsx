@@ -34,12 +34,18 @@ export default async function InboxPage() {
   const items: InboxItem[] = [];
 
   for (const task of tasks) {
-    if (task.assignee && task.status !== "done") {
+    const owners =
+      task.assignees && task.assignees.length > 0
+        ? task.assignees
+        : task.assignee
+          ? [task.assignee]
+          : [];
+    if (owners.length > 0 && task.status !== "done") {
       items.push({
         id: `assign-${task.id}`,
         kind: "assignment",
         title: task.title,
-        detail: `Assigned to ${task.assignee} · ${spaceName.get(task.spaceId) ?? "Workspace"}`,
+        detail: `Assigned to ${owners.join(", ")} · ${spaceName.get(task.spaceId) ?? "Workspace"}`,
         href: `/tasks/${task.id}`,
         when: task.dueDate ? `Due ${task.dueDate}` : "No due date",
         ts: task.dueDate ? Date.parse(`${task.dueDate}T00:00:00`) : 0,

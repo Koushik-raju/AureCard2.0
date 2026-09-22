@@ -38,9 +38,19 @@ export type DepartmentDigest = {
 export function memberWorkload(memberName: string, tasks: Task[]): number {
   const needle = memberName.trim().toLowerCase();
   if (!needle) return 0;
-  return tasks.filter(
-    (t) => t.status !== "done" && (t.assignee ?? "").trim().toLowerCase() === needle
-  ).length;
+  return tasks.filter((t) => {
+    if (t.status === "done") return false;
+    const list =
+      t.assignees && t.assignees.length > 0
+        ? t.assignees
+        : t.assignee
+          ? [t.assignee]
+          : [];
+    return list.some((a) => {
+      const parts = String(a).split(",");
+      return parts.some((p) => p.trim().toLowerCase() === needle);
+    });
+  }).length;
 }
 
 export function computeDigests(

@@ -50,7 +50,10 @@ export type Task = {
   listId?: string;
   status: TaskStatus;
   priority?: TaskPriority;
+  /** @deprecated Single assignee (first entry of `assignees`). Kept for backwards compat. */
   assignee?: string;
+  /** Multiple owners. When present, `assignee` mirrors the first entry. */
+  assignees?: string[];
   tags?: string[];
   dueDate?: string;
   startDate?: string;

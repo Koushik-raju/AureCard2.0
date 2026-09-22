@@ -40,6 +40,8 @@ export default async function SearchPage() {
   const entries: SearchEntry[] = [
     ...tasks.map((t) => {
       const statusLabel = getStatusLabel(t.status);
+      const owners =
+        t.assignees && t.assignees.length > 0 ? t.assignees : t.assignee ? [t.assignee] : [];
       return {
         id: t.id,
         category: "task" as const,
@@ -47,8 +49,7 @@ export default async function SearchPage() {
         subtitle: [
           spaceName.get(t.spaceId),
           t.projectId ? projectName.get(t.projectId) : undefined,
-          t.listId ? listName.get(t.listId) : undefined,
-          t.assignee ? `@${t.assignee}` : undefined,
+          owners.length > 0 ? `@${owners.join(", @")}` : undefined,
           statusLabel,
         ]
           .filter(Boolean)
@@ -59,7 +60,7 @@ export default async function SearchPage() {
           t.title,
           t.description,
           t.tags?.join(" "),
-          t.assignee,
+          owners.join(" "),
           spaceName.get(t.spaceId),
           t.projectId ? projectName.get(t.projectId) : undefined,
           t.listId ? listName.get(t.listId) : undefined,

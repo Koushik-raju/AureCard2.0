@@ -73,6 +73,26 @@ export function AssigneeAvatar({ name, size = "md" }: { name: string; size?: "sm
   );
 }
 
+/** Overlapping avatar stack for multiple assignees. */
+export function AssigneeStack({ names, size = "sm", max = 3 }: { names: string[]; size?: "sm" | "md"; max?: number }) {
+  const shown = names.slice(0, max);
+  const extra = names.length - shown.length;
+  return (
+    <span className="flex shrink-0 items-center" title={names.join(", ")}>
+      <span className="flex -space-x-1.5">
+        {shown.map((n) => (
+          <span key={n} className="rounded-full ring-2 ring-card">
+            <AssigneeAvatar name={n} size={size} />
+          </span>
+        ))}
+      </span>
+      {extra > 0 ? (
+        <span className="ml-1 text-[11px] font-medium text-muted-foreground">+{extra}</span>
+      ) : null}
+    </span>
+  );
+}
+
 /** Colored pill for a tag. */
 export function TagPill({ tag }: { tag: string }) {
   return (

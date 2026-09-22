@@ -19,6 +19,7 @@ import type {
   TaskStatus,
 } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
+import { parseAssignees } from "@/lib/assignees";
 import * as memory from "@/lib/data";
 
 /**
@@ -405,6 +406,8 @@ type CreateTaskInput = {
   listId?: string;
   status?: TaskStatus;
   priority?: TaskPriority;
+  assignee?: string | string[];
+  assignees?: string[];
   description?: string;
   dueDate?: string;
   tags?: string[];
@@ -418,6 +421,9 @@ export async function createTask(
   if (!title) return { error: "Title is required." };
   if (!input.spaceId) return { error: "Choose a space." };
   const id = newId("task");
+  const assignees = parseAssignees(
+    input.assignees ?? (input.assignee as string | string[] | undefined)
+  );
   if (!isDbConfigured) {
     memory.tasks.push({
       id,
@@ -427,6 +433,8 @@ export async function createTask(
       listId: input.listId || undefined,
       status: input.status ?? "todo",
       priority: input.priority ?? undefined,
+      assignee: assignees[0] ?? undefined,
+      assignees: assignees.length > 0 ? assignees : undefined,
       description: input.description?.trim() || undefined,
       dueDate: input.dueDate || undefined,
       tags: input.tags?.length ? input.tags : undefined,
@@ -438,7 +446,8 @@ export async function createTask(
     return { id };
   }
   const { client } = await requireClient();
-  const { error } = await client.from("tasks").insert({
+  // `assignees` column may not exist on older DBs — try with it, fall back to legacy.
+  const baseRow = {
     id,
     title,
     space_id: input.spaceId,
@@ -446,12 +455,18 @@ export async function createTask(
     list_id: input.listId || null,
     status: input.status ?? "todo",
     priority: input.priority ?? null,
+    assignee: assignees[0] ?? null,
     description: input.description?.trim() || null,
     due_date: input.dueDate || null,
     tags: input.tags?.length ? input.tags : [],
     quote: input.quote?.trim() || null,
     source_doc_id: input.sourceDocId || null,
-  });
+  };
+  const withMulti = { ...baseRow, assignees };
+  let { error } = await client.from("tasks").insert(withMulti);
+  if (error && /assignees/i.test(error.message)) {
+    ({ error } = await client.from("tasks").insert(baseRow));
+  }
   if (error) return { error: error.message };
   revalidatePath("/tasks");
   revalidatePath("/spaces");
@@ -826,7 +841,8 @@ export type EditTaskInput = {
   title?: string;
   status?: TaskStatus;
   priority?: TaskPriority | null;
-  assignee?: string | null;
+  assignee?: string | string[] | null;
+  assignees?: string[] | null;
   description?: string;
   dueDate?: string | null;
   startDate?: string | null;
@@ -852,9 +868,16 @@ export async function updateTask(input: EditTaskInput): Promise<{ error?: string
     patch.priority = input.priority ?? undefined;
     changed.push(input.priority ? `priority to ${input.priority}` : "priority");
   }
-  if (input.assignee !== undefined) {
-    patch.assignee = input.assignee?.trim() || undefined;
-    changed.push(input.assignee?.trim() ? `the assignee to ${input.assignee.trim()}` : "the assignee");
+  if (input.assignees !== undefined || input.assignee !== undefined) {
+    const list =
+      input.assignees !== undefined
+        ? parseAssignees(input.assignees)
+        : parseAssignees(input.assignee as string | string[] | null | undefined);
+    patch.assignees = list;
+    patch.assignee = list[0] ?? undefined;
+    changed.push(
+      list.length > 0 ? `the assignees to ${list.join(", ")}` : "the assignees"
+    );
   }
   if (input.description !== undefined) {
     patch.description = input.description?.trim() || undefined;
@@ -900,14 +923,24 @@ export async function updateTask(input: EditTaskInput): Promise<{ error?: string
   if (Object.prototype.hasOwnProperty.call(patch, "title")) livePatch.title = patch.title;
   if (Object.prototype.hasOwnProperty.call(patch, "status")) livePatch.status = patch.status;
   if (Object.prototype.hasOwnProperty.call(patch, "priority")) livePatch.priority = patch.priority ?? null;
-  if (Object.prototype.hasOwnProperty.call(patch, "assignee")) livePatch.assignee = patch.assignee ?? null;
+  if (Object.prototype.hasOwnProperty.call(patch, "assignees") || Object.prototype.hasOwnProperty.call(patch, "assignee")) {
+    const list = patch.assignees ?? (patch.assignee ? [patch.assignee] : []);
+    livePatch.assignee = list[0] ?? null;
+    livePatch.assignees = list;
+  }
   if (Object.prototype.hasOwnProperty.call(patch, "description")) livePatch.description = patch.description ?? null;
   if (Object.prototype.hasOwnProperty.call(patch, "dueDate")) livePatch.due_date = patch.dueDate ?? null;
   if (Object.prototype.hasOwnProperty.call(patch, "startDate")) livePatch.start_date = patch.startDate ?? null;
   if (Object.prototype.hasOwnProperty.call(patch, "tags")) livePatch.tags = patch.tags ?? [];
   if (Object.prototype.hasOwnProperty.call(patch, "quote")) livePatch.quote = patch.quote ?? null;
   if (Object.prototype.hasOwnProperty.call(patch, "sourceDocId")) livePatch.source_doc_id = patch.sourceDocId ?? null;
-  const { error } = await client.from("tasks").update(livePatch).eq("id", input.id);
+  let { error } = await client.from("tasks").update(livePatch).eq("id", input.id);
+  // Older DBs without the `assignees` column: retry with legacy single column.
+  if (error && /assignees/i.test(error.message) && "assignees" in livePatch) {
+    const fallback = { ...livePatch };
+    delete fallback.assignees;
+    ({ error } = await client.from("tasks").update(fallback).eq("id", input.id));
+  }
   if (error) return { error: error.message };
   if (summary) await logActivity(input.id, summary, user.email ?? "Someone");
   revalidatePath("/tasks");

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createTask } from "@/lib/mutations";
+import { parseAssignees } from "@/lib/assignees";
 import { Input } from "@/components/ui/input";
 import { CreateButton, Field, FormActions, SelectField } from "./inline-create";
 import type { Project, Space, TaskPriority, TaskStatus } from "@/lib/types";
@@ -25,6 +26,7 @@ export function CreateTaskButton({
   const [projectId, setProjectId] = useState(defaultProjectId ?? "");
   const [status, setStatus] = useState<TaskStatus>("todo");
   const [priority, setPriority] = useState<TaskPriority | "">("");
+  const [assignees, setAssignees] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -35,12 +37,14 @@ export function CreateTaskButton({
   function submit() {
     setError(null);
     startTransition(async () => {
+      const list = parseAssignees(assignees);
       const result = await createTask({
         title,
         spaceId,
         projectId: projectId || undefined,
         status,
         priority: priority || undefined,
+        assignees: list.length > 0 ? list : undefined,
       });
       if (result.error) {
         setError(result.error);
@@ -116,6 +120,13 @@ export function CreateTaskButton({
               ]}
             />
           </div>
+          <Field label="Assignees">
+            <Input
+              value={assignees}
+              onChange={(e) => setAssignees(e.target.value)}
+              placeholder="Koushik, Rashmi…"
+            />
+          </Field>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <FormActions
             onCancel={close}

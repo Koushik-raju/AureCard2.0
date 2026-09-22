@@ -78,6 +78,22 @@ alter table task_items add column if not exists due_date date;
 alter table task_items add column if not exists priority text;
 alter table task_items add column if not exists description text not null default '';
 
+-- Multiple assignees per task (safe to re-run on existing databases).
+alter table tasks add column if not exists assignees text[] not null default '{}';
+-- Backfill from the legacy single-assignee column (supports "A, B" strings).
+update tasks
+set assignees = coalesce((
+  select array_agg(trimmed)
+  from (
+    select nullif(btrim(part, ' '), '') as trimmed
+    from unnest(string_to_array(coalesce(assignee, ''), ',')) as part
+  ) parts
+  where trimmed is not null
+), '{}')
+where assignees = '{}' and coalesce(assignee, '') <> '';
+-- Keep legacy column in sync for old clients.
+update tasks set assignee = assignees[1] where array_length(assignees, 1) > 0;
+
 create table if not exists task_comments (
   id text primary key,
   task_id text not null references tasks(id) on delete cascade,
@@ -152,6 +168,7 @@ alter table document_blocks drop constraint if exists document_blocks_task_id_fk
 alter table document_blocks add constraint document_blocks_task_id_fkey foreign key (task_id) references tasks(id) on delete set null;
 
 -- Add activity timestamps for the history timeline (idempotent on existing DBs).
+alter table task_activity add column if not exists author text not null default '';
 alter table task_activity add column if not exists created_at timestamptz not null default now();
 
 -- Task provenance (Aure-style quote + source note). Idempotent on existing DBs.

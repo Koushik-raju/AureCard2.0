@@ -4,9 +4,23 @@ import Link from "next/link";
 import { Quote } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** True when the assignee value refers to the signed-in user (name or email). */
-export function isMine(assignee: string | undefined, me: string | undefined): boolean {
-  if (!assignee || !me) return false;
+/** True when any assignee value refers to the signed-in user (name or email). */
+export function isMine(
+  assignee: string | string[] | undefined,
+  me: string | undefined
+): boolean {
+  if (!me) return false;
+  const list = Array.isArray(assignee)
+    ? assignee
+    : assignee
+      ? [assignee]
+      : [];
+  // Legacy single strings may hold "A, B".
+  const flat = list.flatMap((a) => String(a).split(","));
+  return flat.some((single) => matchesOne(single, me));
+}
+
+function matchesOne(assignee: string, me: string): boolean {
   const a = assignee.trim().toLowerCase();
   const m = me.trim().toLowerCase();
   if (!a || !m) return false;
@@ -16,8 +30,17 @@ export function isMine(assignee: string | undefined, me: string | undefined): bo
 }
 
 /** "who?" flag for open tasks with no owner. */
-export function WhoBadge({ assignee, open }: { assignee?: string; open: boolean }) {
-  if (assignee || !open) return null;
+export function WhoBadge({
+  assignee,
+  assignees,
+  open,
+}: {
+  assignee?: string;
+  assignees?: string[];
+  open: boolean }) {
+  const hasOwner =
+    (assignees && assignees.length > 0) || Boolean(assignee?.trim());
+  if (hasOwner || !open) return null;
   return (
     <span
       title="No owner yet"

@@ -80,8 +80,9 @@ export function ExploreTasks({ tasks, projects, spaces, counts, itemsByTask, cur
       )
       .filter((task) => {
         if (status !== "all" && task.status !== status) return false;
-        if (owner === "mine" && !isMine(task.assignee, currentUserEmail)) return false;
-        if (owner === "waiting" && (!task.assignee || isMine(task.assignee, currentUserEmail))) return false;
+        const owners = task.assignees && task.assignees.length > 0 ? task.assignees : task.assignee ? [task.assignee] : [];
+        if (owner === "mine" && !isMine(owners, currentUserEmail)) return false;
+        if (owner === "waiting" && (owners.length === 0 || isMine(owners, currentUserEmail))) return false;
         if (spaceId !== "all" && task.spaceId !== spaceId) return false;
         if (projectId !== "all" && task.projectId !== projectId) return false;
         if (q && !task.title.toLowerCase().includes(q)) return false;

@@ -19,6 +19,8 @@ import type {
   TaskStatus,
 } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
+import { assigneesEqual, formatAssignees, getTaskAssignees, parseAssignees } from "@/lib/assignees";
+import { AssigneeStack } from "@/components/tasks/hues";
 import { PREF_KEYS, readJson } from "@/lib/prefs";
 import { setTaskStatus as setSessionTaskStatus } from "@/lib/session-store";
 import type { EditTaskInput } from "@/lib/mutations";
@@ -181,7 +183,7 @@ export function TaskDetail({
   const [draft, setDraft] = useState({
     title: task.title,
     priority: task.priority ?? (null as TaskPriority | null),
-    assignee: task.assignee ?? "",
+    assignee: formatAssignees(getTaskAssignees(task)),
     dueDate: task.dueDate ?? "",
     tags: (task.tags ?? []).join(", "),
     quote: task.quote ?? "",
@@ -231,7 +233,7 @@ export function TaskDetail({
     setDraft({
       title: task.title,
       priority: task.priority ?? null,
-      assignee: task.assignee ?? "",
+      assignee: formatAssignees(getTaskAssignees(task)),
       dueDate: task.dueDate ?? "",
       tags: (task.tags ?? []).join(", "),
       quote: task.quote ?? "",
@@ -256,9 +258,11 @@ export function TaskDetail({
     // Description is edited inline in the Notion-style body above and
     // autosaves independently, so it stays out of the Update form.
     if ((draft.priority ?? null) !== (task.priority ?? null)) updates.priority = draft.priority;
-    const assignee = draft.assignee.trim();
-    const origAssignee = task.assignee?.trim() ?? "";
-    if ((assignee || null) !== (origAssignee || null)) updates.assignee = assignee || null;
+    const assignees = parseAssignees(draft.assignee);
+    if (!assigneesEqual(assignees, getTaskAssignees(task))) {
+      updates.assignees = assignees;
+      updates.assignee = assignees[0] ?? null;
+    }
     const due = draft.dueDate || null;
     if (due !== (task.dueDate ?? null)) updates.dueDate = due;
     const tags = parseTags(draft.tags);
@@ -371,9 +375,10 @@ export function TaskDetail({
               <Input
                 value={draft.assignee}
                 onChange={(e) => setDraft((d) => ({ ...d, assignee: e.target.value }))}
-                placeholder="Assignee"
+                placeholder="Koushik, Rashmi…"
                 className="h-8 text-sm"
               />
+              <p className="mt-1 text-xs text-muted-foreground">Separate multiple assignees with commas.</p>
             </Field>
             <Field label="Due date">
               <Input
@@ -457,7 +462,16 @@ export function TaskDetail({
           <dl className="mx-auto mt-6 grid grid-cols-2 gap-x-6 gap-y-1 rounded-xl border border-border bg-card p-5 sm:grid-cols-3 lg:grid-cols-5">
             <Field label="Status">{getStatusLabel(status)}</Field>
             <Field label="Priority">{task.priority ? priorityCapital(task.priority) : "—"}</Field>
-            <Field label="Assignee">{task.assignee ?? "—"}</Field>
+            <Field label="Assignees">
+              {getTaskAssignees(task).length > 0 ? (
+                <span className="flex flex-wrap items-center gap-1.5">
+                  <AssigneeStack names={getTaskAssignees(task)} size="sm" max={5} />
+                  <span>{getTaskAssignees(task).join(", ")}</span>
+                </span>
+              ) : (
+                "—"
+              )}
+            </Field>
             <Field label="Due date">{formatDate(task.dueDate) ?? "—"}</Field>
             <Field label="Tags">
               {task.tags && task.tags.length > 0 ? (

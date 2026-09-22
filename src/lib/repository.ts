@@ -40,6 +40,18 @@ function mapList(r: Row): List {
 }
 
 function mapTask(r: Row): Task {
+  const rawAssignees = Array.isArray(r.assignees)
+    ? (r.assignees as unknown[]).map((t) => String(t).trim()).filter(Boolean)
+    : [];
+  const legacy = r.assignee ? String(r.assignee).trim() : "";
+  // Support legacy "A, B" strings stored in the single-assignee column.
+  const legacyList = legacy
+    ? legacy
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+  const assignees = rawAssignees.length > 0 ? rawAssignees : legacyList;
   return {
     id: String(r.id),
     title: String(r.title),
@@ -48,7 +60,8 @@ function mapTask(r: Row): Task {
     listId: r.list_id ? String(r.list_id) : undefined,
     status: (r.status ?? "todo") as Task["status"],
     priority: r.priority ? (r.priority as Task["priority"]) : undefined,
-    assignee: r.assignee ? String(r.assignee) : undefined,
+    assignee: assignees[0] ?? (legacy || undefined),
+    assignees: assignees.length > 0 ? assignees : undefined,
     tags: Array.isArray(r.tags) ? r.tags.map((t) => String(t)) : undefined,
     dueDate: r.due_date ? String(r.due_date) : undefined,
     startDate: r.start_date ? String(r.start_date) : undefined,
