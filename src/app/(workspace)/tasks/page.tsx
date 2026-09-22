@@ -5,7 +5,6 @@ import {
   getTasks,
   getProjects,
   getSpaces,
-  getTaskStatusCounts,
   getTaskItems,
   getDocuments,
   getTaskAttachments,
@@ -13,17 +12,24 @@ import {
 } from "@/lib/repository";
 
 export default async function TasksPage() {
-  const [tasks, projects, spaces, counts, taskItems, documents, attachments, comments, user] = await Promise.all([
+  const [tasks, projects, spaces, taskItems, documents, attachments, comments, user] = await Promise.all([
     getTasks(),
     getProjects(),
     getSpaces(),
-    getTaskStatusCounts(),
     getTaskItems(),
     getDocuments(),
     getTaskAttachments(),
     getComments(),
     getCurrentUser(),
   ]);
+  // Derived locally — avoids a second full fetch of the tasks table.
+  const counts = {
+    total: tasks.length,
+    todo: tasks.filter((t) => t.status === "todo").length,
+    inProgress: tasks.filter((t) => t.status === "in-progress").length,
+    inReview: tasks.filter((t) => t.status === "in-review").length,
+    done: tasks.filter((t) => t.status === "done").length,
+  };
   const itemsByTask: Record<string, import("@/lib/types").TaskItem[]> = {};
   for (const item of taskItems) {
     (itemsByTask[item.taskId] ??= []).push(item);
