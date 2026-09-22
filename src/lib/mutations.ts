@@ -708,10 +708,14 @@ export async function updateSpace(input: EditSpaceInput): Promise<{ error?: stri
     return {};
   }
   const { client } = await requireClient();
-  const { error } = await client
-    .from("spaces")
-    .update({ ...patch, description: patch.description ?? null })
-    .eq("id", input.id);
+  // Only provided keys are written: spaces.description is NOT NULL, so an
+  // absent description must not overwrite the stored value with NULL
+  // (renaming a space must never fail or wipe its description).
+  const livePatch: Record<string, unknown> = {};
+  if (patch.name !== undefined) livePatch.name = patch.name;
+  if (patch.description !== undefined) livePatch.description = patch.description;
+  if (patch.accent !== undefined) livePatch.accent = patch.accent;
+  const { error } = await client.from("spaces").update(livePatch).eq("id", input.id);
   if (error) return { error: error.message };
   revalidatePath("/spaces");
   revalidatePath("/home");
@@ -772,9 +776,13 @@ export async function updateProject(input: EditProjectInput): Promise<{ error?: 
     return {};
   }
   const { client } = await requireClient();
+  const livePatch: Record<string, unknown> = {};
+  if (patch.name !== undefined) livePatch.name = patch.name;
+  if ("description" in patch) livePatch.description = patch.description ?? null;
+  if (patch.spaceId !== undefined) livePatch.space_id = patch.spaceId;
   const { error } = await client
     .from("projects")
-    .update({ ...patch, description: patch.description ?? null })
+    .update(livePatch)
     .eq("id", input.id);
   if (error) return { error: error.message };
   revalidatePath("/projects");
@@ -1025,7 +1033,12 @@ export async function updateDocument(input: EditDocumentInput): Promise<{ error?
     return {};
   }
   const { client } = await requireClient();
-  const { error } = await client.from("documents").update(patch).eq("id", input.id);
+  // Map to snake_case columns; only provided keys are written.
+  const livePatch: Record<string, unknown> = {};
+  if (patch.title !== undefined) livePatch.title = patch.title;
+  if (patch.spaceId !== undefined) livePatch.space_id = patch.spaceId;
+  if (patch.kind !== undefined) livePatch.kind = patch.kind;
+  const { error } = await client.from("documents").update(livePatch).eq("id", input.id);
   if (error) return { error: error.message };
   revalidatePath("/docs");
   revalidatePath(`/docs/${input.id}`);
