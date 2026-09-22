@@ -682,15 +682,6 @@ function BlockList({
           onColor={(color, bg) => updateBlock(block.id, { color, bg })}
         />
       ))}
-      {blocks.length > 0 && level === 0 ? (
-        <button
-          type="button"
-          onClick={() => insertAfter(blocks[blocks.length - 1].id, "text")}
-          className="mt-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <Plus className="size-4" /> Add block
-        </button>
-      ) : null}
     </div>
   );
 }
