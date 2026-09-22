@@ -85,14 +85,17 @@ export function ProjectMenu({
 export function TaskMenu({
   taskId,
   taskTitle,
+  placement = "fixed",
 }: {
   taskId: string;
   taskTitle: string;
+  placement?: "fixed" | "inline";
 }) {
   const [editing, setEditing] = useState(false);
   return (
     <span className="relative inline-flex">
       <EntityMenu
+        placement={placement}
         onEdit={() => setEditing(true)}
         onDelete={() => deleteTask(taskId)}
         onDeleteRedirect="/tasks"

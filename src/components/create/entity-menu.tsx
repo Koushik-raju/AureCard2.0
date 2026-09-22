@@ -14,10 +14,13 @@ export function Dropdown({
   trigger,
   children,
   align = "right",
+  placement = "fixed",
 }: {
   trigger: React.ReactNode;
   children: React.ReactNode;
   align?: "left" | "right";
+  /** "inline" pins the menu under the trigger with pure CSS (no measuring). */
+  placement?: "fixed" | "inline";
 }) {
   const [open, setOpen] = useState(false);
   const id = useId();
@@ -28,6 +31,7 @@ export function Dropdown({
   useEffect(() => {
     closeRef.current = close;
   });
+  const inline = placement === "inline";
 
   // One menu at a time: announce when this opens, close when another does.
   useEffect(() => {
@@ -67,7 +71,7 @@ export function Dropdown({
   }, [align]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || inline) return;
     position();
     window.addEventListener("scroll", position, true);
     window.addEventListener("resize", position);
@@ -75,12 +79,13 @@ export function Dropdown({
       window.removeEventListener("scroll", position, true);
       window.removeEventListener("resize", position);
     };
-  }, [open, position]);
+  }, [open, position, inline]);
 
   // Re-anchor after every render while open: row expand/collapse, add-forms
   // and list updates shift the trigger without firing scroll/resize.
+  // (Fixed placement only — inline is CSS-pinned and never drifts.)
   useEffect(() => {
-    if (open) position();
+    if (open && !inline) position();
   });
 
   return (
@@ -91,15 +96,26 @@ export function Dropdown({
       {open ? (
         <>
           <div className="fixed inset-0 z-40" onClick={close} aria-hidden="true" />
-          <div
-            ref={menuRef}
-            role="menu"
-            id={id}
-            style={{ width: 192, maxHeight: 320, overflowY: "auto", visibility: "hidden" }}
-            className="fixed z-50 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg"
-          >
-            {children}
-          </div>
+          {inline ? (
+            <div
+              role="menu"
+              id={id}
+              style={{ width: 192 }}
+              className="absolute right-0 top-full z-50 mt-1 rounded-lg border border-border bg-popover p-1 shadow-lg"
+            >
+              {children}
+            </div>
+          ) : (
+            <div
+              ref={menuRef}
+              role="menu"
+              id={id}
+              style={{ width: 192, maxHeight: 320, overflowY: "auto", visibility: "hidden" }}
+              className="fixed z-50 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg"
+            >
+              {children}
+            </div>
+          )}
         </>
       ) : null}
     </DropdownContext.Provider>
@@ -150,15 +166,18 @@ export function EntityMenu({
   onEdit,
   deleteLabel = "Delete",
   hasEdit = true,
+  placement = "fixed",
 }: {
   onDelete: () => Promise<{ error?: string }>;
   onDeleteRedirect?: string;
   onEdit: () => void;
   deleteLabel?: string;
   hasEdit?: boolean;
+  placement?: "fixed" | "inline";
 }) {
   return (
     <Dropdown
+      placement={placement}
       trigger={
         <Button variant="ghost" size="icon" aria-label="Actions">
           <MoreHorizontal className="size-4" />
