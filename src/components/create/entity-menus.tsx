@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, MoreHorizontal, Pencil } from "lucide-react";
 import {
@@ -86,16 +86,23 @@ export function TaskMenu({
   taskId,
   taskTitle,
   placement = "fixed",
+  onOpenChange,
 }: {
   taskId: string;
   taskTitle: string;
   placement?: "fixed" | "inline";
+  onOpenChange?: (open: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const open = editing;
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [open, onOpenChange]);
   return (
     <span className="relative inline-flex">
       <EntityMenu
         placement={placement}
+        onOpenChange={(menuOpen) => onOpenChange?.(menuOpen || editing)}
         onEdit={() => setEditing(true)}
         onDelete={() => deleteTask(taskId)}
         onDeleteRedirect="/tasks"

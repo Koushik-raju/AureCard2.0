@@ -15,12 +15,14 @@ export function Dropdown({
   children,
   align = "right",
   placement = "fixed",
+  onOpenChange,
 }: {
   trigger: React.ReactNode;
   children: React.ReactNode;
   align?: "left" | "right";
   /** "inline" pins the menu under the trigger with pure CSS (no measuring). */
   placement?: "fixed" | "inline";
+  onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const id = useId();
@@ -32,6 +34,10 @@ export function Dropdown({
     closeRef.current = close;
   });
   const inline = placement === "inline";
+
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [open, onOpenChange]);
 
   // One menu at a time: announce when this opens, close when another does.
   useEffect(() => {
@@ -167,6 +173,7 @@ export function EntityMenu({
   deleteLabel = "Delete",
   hasEdit = true,
   placement = "fixed",
+  onOpenChange,
 }: {
   onDelete: () => Promise<{ error?: string }>;
   onDeleteRedirect?: string;
@@ -174,10 +181,12 @@ export function EntityMenu({
   deleteLabel?: string;
   hasEdit?: boolean;
   placement?: "fixed" | "inline";
+  onOpenChange?: (open: boolean) => void;
 }) {
   return (
     <Dropdown
       placement={placement}
+      onOpenChange={onOpenChange}
       trigger={
         <Button variant="ghost" size="icon" aria-label="Actions">
           <MoreHorizontal className="size-4" />

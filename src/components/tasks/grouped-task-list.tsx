@@ -538,6 +538,7 @@ function TaskRow({
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(task.title);
   const [addingSub, setAddingSub] = useState(false);
+  const [rowMenuOpen, setRowMenuOpen] = useState(false);
   const [subTitle, setSubTitle] = useState("");
   const [, startSubTransition] = useTransition();
 
@@ -869,7 +870,12 @@ function TaskRow({
       />
       </div>
 
-      <span className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-lg border border-border bg-card px-1 py-0.5 opacity-0 shadow-md transition-opacity focus-within:opacity-100 group-hover:opacity-100 max-sm:hidden">
+      <span
+        className={cn(
+          "absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-lg border border-border bg-card px-1 py-0.5 shadow-md transition-opacity focus-within:opacity-100 max-sm:hidden",
+          rowMenuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        )}
+      >
         <button
           type="button"
           onClick={onToggleSelect}
@@ -911,7 +917,7 @@ function TaskRow({
         >
           <Pencil className="size-3.5" />
         </button>
-        <TaskMenu taskId={task.id} taskTitle={task.title} placement="inline" />
+        <TaskMenu taskId={task.id} taskTitle={task.title} placement="inline" onOpenChange={setRowMenuOpen} />
       </span>
 
       {expanded ? (
