@@ -82,7 +82,6 @@ export default async function InboxPage() {
   }
 
   for (const comment of comments) {
-    if (isMe(comment.author)) continue;
     const task = taskById.get(comment.taskId);
     items.push({
       id: `comment-${comment.id}`,
@@ -92,11 +91,11 @@ export default async function InboxPage() {
       href: `/tasks/${comment.taskId}`,
       when: formatRelativeTime(comment.createdAt),
       ts: toTs(comment.createdAt, ""),
+      mine: isMe(comment.author),
     });
   }
 
   for (const entry of activity.slice(0, 30)) {
-    if (isMe(entry.author)) continue;
     const task = taskById.get(entry.taskId);
     items.push({
       id: `activity-${entry.id}`,
@@ -106,6 +105,7 @@ export default async function InboxPage() {
       href: `/tasks/${entry.taskId}`,
       when: entry.createdAt ? formatRelativeTime(entry.createdAt) : entry.when,
       ts: toTs(entry.createdAt, entry.when),
+      mine: isMe(entry.author),
     });
   }
 

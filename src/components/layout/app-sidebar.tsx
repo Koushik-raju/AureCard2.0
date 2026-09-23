@@ -21,6 +21,11 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/app/actions/auth";
 import { PREF_KEYS, readJson } from "@/lib/prefs";
+import {
+  DEFAULT_NOTIFICATION_PREFS,
+  applyNotificationPrefs,
+  type NotificationPrefs,
+} from "@/lib/notifications";
 
 const NAV_GROUPS = [
   {
@@ -57,12 +62,47 @@ const NAV_GROUPS = [
   },
 ];
 
+type SnapshotEntry = { id: string; kind: string; mine?: boolean };
+
+function readSnapshot(): SnapshotEntry[] {
+  try {
+    const raw = readJson<{ ids?: string[]; entries?: SnapshotEntry[] }>(
+      PREF_KEYS.inboxSnapshot,
+      { ids: [] }
+    );
+    if (Array.isArray(raw.entries)) return raw.entries;
+    if (Array.isArray(raw.ids)) {
+      return raw.ids.map((id) => ({ id, kind: "assignment" }));
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+function readPrefs(): NotificationPrefs {
+  try {
+    return {
+      ...DEFAULT_NOTIFICATION_PREFS,
+      ...readJson<Partial<NotificationPrefs>>(PREF_KEYS.notifications, {}),
+    };
+  } catch {
+    return DEFAULT_NOTIFICATION_PREFS;
+  }
+}
+
+const INBOX_KINDS = ["assignment", "comment", "due", "activity"] as const;
+type InboxKind = (typeof INBOX_KINDS)[number];
+
 function inboxUnreadCount(): number {
   try {
-    const snap = readJson<{ ids: string[] }>(PREF_KEYS.inboxSnapshot, { ids: [] });
-    const ids = Array.isArray(snap.ids) ? snap.ids : [];
     const read = new Set(readJson<{ ids: string[] }>(PREF_KEYS.inboxRead, { ids: [] }).ids ?? []);
-    return ids.filter((id) => !read.has(id)).length;
+    const entries = readSnapshot().map((e) => ({
+      id: e.id,
+      kind: (INBOX_KINDS as readonly string[]).includes(e.kind) ? (e.kind as InboxKind) : ("activity" as InboxKind),
+      mine: !!e.mine,
+    }));
+    return applyNotificationPrefs(entries, readPrefs()).filter((i) => !read.has(i.id)).length;
   } catch {
     return 0;
   }

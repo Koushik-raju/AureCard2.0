@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/layout/page-header";
 
 const SECTIONS = [
   { href: "/settings/profile", title: "Profile", desc: "Name shown to others in spaces." },
+  { href: "/settings/notifications", title: "Notifications", desc: "Which inbox events notify you." },
   { href: "/settings/voice", title: "Voice & languages", desc: "Recording, transcription and language prefs." },
   { href: "/settings/subscription", title: "Subscription", desc: "Plan and billing." },
   { href: "/settings/privacy", title: "Privacy & data", desc: "Export notes as JSON, manage local data." },

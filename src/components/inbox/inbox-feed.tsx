@@ -5,6 +5,11 @@ import Link from "next/link";
 import { AtSign, CalendarClock, ListTodo, MessagesSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PREF_KEYS, readJson, writeJson } from "@/lib/prefs";
+import {
+  DEFAULT_NOTIFICATION_PREFS,
+  applyNotificationPrefs,
+  type NotificationPrefs,
+} from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 
 export type InboxItem = {
@@ -15,6 +20,8 @@ export type InboxItem = {
   href: string;
   when: string;
   ts: number;
+  /** Authored by the viewer — hidden unless prefs allow it. */
+  mine?: boolean;
 };
 
 const KIND_META = {
@@ -39,23 +46,32 @@ function loadRead(): string[] {
   return Array.isArray(raw.ids) ? raw.ids : [];
 }
 
+function loadPrefs(): NotificationPrefs {
+  return {
+    ...DEFAULT_NOTIFICATION_PREFS,
+    ...readJson<Partial<NotificationPrefs>>(PREF_KEYS.notifications, {}),
+  };
+}
+
 export function InboxFeed({ items }: { items: InboxItem[] }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [readIds, setReadIds] = useState<string[]>(loadRead);
+  const [prefs] = useState<NotificationPrefs>(loadPrefs);
   const read = useMemo(() => new Set(readIds), [readIds]);
 
-  const unreadCount = items.filter((i) => !read.has(i.id)).length;
+  const allowed = useMemo(() => applyNotificationPrefs(items, prefs), [items, prefs]);
+  const unreadCount = allowed.filter((i) => !read.has(i.id)).length;
 
-  // Snapshot the current feed ids so the sidebar badge can count unread
-  // items without refetching (refreshed on every inbox visit).
+  // Snapshot the current feed (with kinds) so the sidebar badge can count
+  // unread items without refetching (refreshed on every inbox visit).
   useEffect(() => {
     writeJson(PREF_KEYS.inboxSnapshot, {
-      ids: items.map((i) => i.id),
+      entries: items.map((i) => ({ id: i.id, kind: i.kind, mine: !!i.mine })),
       ts: Date.now(),
     });
   }, [items]);
 
-  const visible = items.filter((item) => {
+  const visible = allowed.filter((item) => {
     if (filter === "unread") return !read.has(item.id);
     if (filter === "all") return true;
     return item.kind === filter;
@@ -103,7 +119,7 @@ export function InboxFeed({ items }: { items: InboxItem[] }) {
 
       {visible.length === 0 ? (
         <p className="mt-6 rounded-xl border border-dashed border-border bg-muted/40 px-6 py-10 text-center text-sm text-muted-foreground">
-          {items.length === 0
+          {allowed.length === 0
             ? "Nothing here yet — assignments, mentions and due dates land in this feed."
             : "Nothing matches this filter."}
         </p>

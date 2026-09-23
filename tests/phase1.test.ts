@@ -9,6 +9,10 @@ import { formatDueDate, formatRelativeTime } from "@/lib/dates";
 import { resolveDocType } from "@/lib/doc-type";
 import { cascadeDone } from "@/lib/subtask-tree";
 import { normalizeTags } from "@/lib/tags";
+import {
+  DEFAULT_NOTIFICATION_PREFS,
+  applyNotificationPrefs,
+} from "@/lib/notifications";
 import type { Task } from "@/lib/types";
 
 function task(overrides: Partial<Task> & { id: string }): Task {
@@ -121,5 +125,31 @@ describe("normalizeTags", () => {
       "production",
     ]);
     expect(normalizeTags(undefined)).toEqual([]);
+  });
+});
+
+describe("applyNotificationPrefs", () => {
+  const items = [
+    { id: "a", kind: "assignment" as const },
+    { id: "c", kind: "comment" as const },
+    { id: "mine", kind: "comment" as const, mine: true },
+    { id: "d", kind: "due" as const },
+  ];
+
+  it("hides own actions by default", () => {
+    expect(applyNotificationPrefs(items, DEFAULT_NOTIFICATION_PREFS).map((i) => i.id)).toEqual([
+      "a",
+      "c",
+      "d",
+    ]);
+  });
+
+  it("respects kind toggles and includeMine", () => {
+    const out = applyNotificationPrefs(items, {
+      ...DEFAULT_NOTIFICATION_PREFS,
+      due: false,
+      includeMine: true,
+    }).map((i) => i.id);
+    expect(out).toEqual(["a", "c", "mine"]);
   });
 });
