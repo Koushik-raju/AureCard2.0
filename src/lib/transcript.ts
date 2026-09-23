@@ -128,6 +128,51 @@ export function stripSpeakers(text: string): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* Speaker roster (one central list; turns reference it by name)       */
+/* ------------------------------------------------------------------ */
+
+/** Ordered unique speaker names across turns plus explicitly added extras. */
+export function rosterOf(turns: Turn[], extra: string[] = []): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (raw: string) => {
+    const name = raw.trim().replace(/\s+/g, " ").slice(0, 32);
+    if (!name || seen.has(name.toLowerCase())) return;
+    seen.add(name.toLowerCase());
+    out.push(name);
+  };
+  for (const t of turns) push(t.speaker);
+  for (const n of extra) push(n);
+  return out;
+}
+
+/** Rename a speaker across all turns (rename-to-existing merges them). */
+export function renameSpeakerInTurns(
+  turns: Turn[],
+  oldName: string,
+  newName: string
+): Turn[] {
+  const from = oldName.trim().toLowerCase();
+  const to = newName.trim().replace(/\s+/g, " ").slice(0, 32);
+  if (!from || !to) return turns;
+  return turns.map((t) =>
+    t.speaker.trim().toLowerCase() === from ? { ...t, speaker: to } : t
+  );
+}
+
+/** Next speaker after `last`, cycling the roster (never invents "Speaker 3+"). */
+export function cycleSpeaker(roster: string[], last: string): string {
+  if (roster.length === 0) return "Speaker 1";
+  if (roster.length === 1) {
+    return roster[0].toLowerCase() === "speaker 1" ? "Speaker 2" : "Speaker 1";
+  }
+  const i = roster.findIndex(
+    (n) => n.toLowerCase() === last.trim().toLowerCase()
+  );
+  return roster[(i + 1) % roster.length];
+}
+
+/* ------------------------------------------------------------------ */
 /* Prepared-note sections (extractive, fully local)                    */
 /* ------------------------------------------------------------------ */
 

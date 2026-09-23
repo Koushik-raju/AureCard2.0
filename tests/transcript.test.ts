@@ -3,9 +3,12 @@ import {
   buildNoteSections,
   chunkTranscript,
   cleanLine,
+  cycleSpeaker,
   extractTaskSuggestions,
   formatTurns,
   parseTurns,
+  renameSpeakerInTurns,
+  rosterOf,
   stripSpeakers,
   summarizeTranscript,
 } from "@/lib/transcript";
@@ -64,6 +67,35 @@ describe("conversation turns", () => {
 
   it("strips speaker labels for summary input", () => {
     expect(stripSpeakers("Asha: Hello world.")).toBe("Hello world.");
+  });
+});
+
+describe("speaker roster", () => {
+  const turns = [
+    { speaker: "Koushik", text: "Hello." },
+    { speaker: "Rashmi", text: "Hi." },
+    { speaker: "koushik", text: "Again." },
+  ];
+
+  it("dedupes case-insensitively in first-seen order", () => {
+    expect(rosterOf(turns, ["Asha", "koushik"])).toEqual([
+      "Koushik",
+      "Rashmi",
+      "Asha",
+    ]);
+  });
+
+  it("renames across turns", () => {
+    const next = renameSpeakerInTurns(turns, "Rashmi", "Rashmi M");
+    expect(next[1].speaker).toBe("Rashmi M");
+    expect(next[0].speaker).toBe("Koushik");
+  });
+
+  it("cycles the roster without inventing names", () => {
+    expect(cycleSpeaker(["Koushik", "Rashmi"], "Koushik")).toBe("Rashmi");
+    expect(cycleSpeaker(["Koushik", "Rashmi"], "Rashmi")).toBe("Koushik");
+    expect(cycleSpeaker(["Speaker 1"], "Speaker 1")).toBe("Speaker 2");
+    expect(cycleSpeaker([], "")).toBe("Speaker 1");
   });
 });
 

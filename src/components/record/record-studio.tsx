@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Disc3, Mic, Pause, Play, RotateCcw, Save, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,13 +11,17 @@ import { uploadMediaFile } from "@/lib/storage";
 import { getVoicePrefs } from "@/lib/prefs";
 import { RECORDING_TYPES } from "@/lib/note-types";
 import {
+  cycleSpeaker,
   extractTaskSuggestions,
   formatTurns,
   parseTurns,
+  renameSpeakerInTurns,
+  rosterOf,
   stripSpeakers,
   summarizeTranscript,
   type Turn,
 } from "@/lib/transcript";
+import { AssigneeAvatar } from "@/components/tasks/hues";
 import type { RecordingType, Space } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -77,13 +81,6 @@ function defaultTitle(now: Date): string {
   return `Recording ${day}, ${time}`;
 }
 
-function nextSpeakerLabel(list: Turn[]): string {
-  const last = list[list.length - 1]?.speaker.trim();
-  if (last === "Speaker 1") return "Speaker 2";
-  if (last === "Speaker 2") return "Speaker 1";
-  return `Speaker ${list.length + 1}`;
-}
-
 export function RecordStudio({ spaces }: { spaces: Space[] }) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("idle");
@@ -96,10 +93,21 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
   // transcript string mirrors them for the non-conversation UI and save path.
   const [turns, setTurns] = useState<Turn[]>([{ speaker: "Speaker 1", text: "" }]);
   const [turnInterim, setTurnInterim] = useState("");
+  // Names added via the Speakers panel before they own any turn.
+  const [extraSpeakers, setExtraSpeakers] = useState<string[]>([]);
   const turnsRef = useRef<Turn[]>([{ speaker: "Speaker 1", text: "" }]);
   useEffect(() => {
     turnsRef.current = turns;
   }, [turns]);
+  const extraSpeakersRef = useRef<string[]>([]);
+  useEffect(() => {
+    extraSpeakersRef.current = extraSpeakers;
+  }, [extraSpeakers]);
+  // One central roster — turn rows only reference it, never define names.
+  const roster = useMemo(
+    () => rosterOf(turns, extraSpeakers),
+    [turns, extraSpeakers]
+  );
   const lastFinalAtRef = useRef(0);
   const [transcribing, setTranscribing] = useState(false);
   const [transcriptUnsupported, setTranscriptUnsupported] = useState(false);
@@ -216,8 +224,9 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
     const gap = now - lastFinalAtRef.current;
     lastFinalAtRef.current = now;
     setTurnInterim("");
+    const speakers = rosterOf(list, extraSpeakersRef.current);
     if (gap > 6000 && last && last.text.trim()) {
-      syncFromTurns([...list, { speaker: nextSpeakerLabel(list), text: chunk }]);
+      syncFromTurns([...list, { speaker: cycleSpeaker(speakers, last.speaker), text: chunk }]);
     } else if (last) {
       const next = [...list];
       next[next.length - 1] = {
@@ -226,7 +235,7 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
       };
       syncFromTurns(next);
     } else {
-      syncFromTurns([{ speaker: "Speaker 1", text: chunk }]);
+      syncFromTurns([{ speaker: speakers[0] ?? "Speaker 1", text: chunk }]);
     }
   }, [syncFromTurns]);
 
@@ -288,6 +297,8 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
     const fresh: Turn[] = [{ speaker: "Speaker 1", text: "" }];
     setTurns(fresh);
     turnsRef.current = fresh;
+    setExtraSpeakers([]);
+    extraSpeakersRef.current = [];
     setTurnInterim("");
     lastFinalAtRef.current = 0;
     setSuggestions([]);
@@ -404,6 +415,8 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
     const fresh: Turn[] = [{ speaker: "Speaker 1", text: "" }];
     setTurns(fresh);
     turnsRef.current = fresh;
+    setExtraSpeakers([]);
+    extraSpeakersRef.current = [];
     setTurnInterim("");
     setSuggestions([]);
     setChecked([]);
@@ -418,9 +431,10 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
   }
 
   function addTurn() {
-    const list = turnsRef.current;
-    const next: Turn = { speaker: nextSpeakerLabel(list), text: "" };
-    const updated = [...list, next];
+    const speakers = rosterOf(turnsRef.current, extraSpeakersRef.current);
+    const last = turnsRef.current[turnsRef.current.length - 1]?.speaker ?? "";
+    const next: Turn = { speaker: cycleSpeaker(speakers, last), text: "" };
+    const updated = [...turnsRef.current, next];
     setTurns(updated);
     setTranscript(formatTurns(updated));
   }
@@ -433,6 +447,42 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
   function removeTurn(index: number) {
     const list = turnsRef.current.filter((_, i) => i !== index);
     syncFromTurns(list.length > 0 ? list : [{ speaker: "Speaker 1", text: "" }]);
+  }
+
+  function addSpeaker() {
+    const existing = rosterOf(turnsRef.current, extraSpeakersRef.current).map((n) =>
+      n.toLowerCase()
+    );
+    let n = existing.length + 1;
+    let name = `Person ${n}`;
+    while (existing.includes(name.toLowerCase())) {
+      n += 1;
+      name = `Person ${n}`;
+    }
+    setExtraSpeakers((prev) => [...prev, name]);
+  }
+
+  function renameSpeaker(oldName: string, newName: string) {
+    const clean = newName.trim().replace(/\s+/g, " ").slice(0, 32);
+    if (!clean) return;
+    const oldKey = oldName.trim().toLowerCase();
+    // Renaming onto an existing name merges the two speakers.
+    const list = renameSpeakerInTurns(turnsRef.current, oldName, clean);
+    setExtraSpeakers((prev) => prev.filter((n) => n.trim().toLowerCase() !== oldKey));
+    syncFromTurns(list);
+  }
+
+  function removeSpeaker(name: string) {
+    const key = name.trim().toLowerCase();
+    const remaining = rosterOf(turnsRef.current, extraSpeakersRef.current).filter(
+      (n) => n.toLowerCase() !== key
+    );
+    const fallback = remaining[0] ?? "";
+    const list = turnsRef.current.map((t) =>
+      t.speaker.trim().toLowerCase() === key ? { ...t, speaker: fallback } : t
+    );
+    setExtraSpeakers((prev) => prev.filter((n) => n.trim().toLowerCase() !== key));
+    syncFromTurns(list);
   }
 
   const isConvType = recordingType === "conversation" || recordingType === "meeting";
@@ -676,17 +726,84 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
               Transcript {transcript ? "" : "(add one manually or leave empty)"}
             </Label>
             {isConvType ? (
-              <div className="space-y-2" role="group" aria-labelledby="rec-transcript-label">
-                {turns.map((t, i) => (
+              <div className="space-y-3" role="group" aria-labelledby="rec-transcript-label">
+                <div className="rounded-xl border border-border bg-muted/40 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      Speakers · {roster.length}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={addSpeaker}
+                      className="rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      ＋ Add person
+                    </button>
+                  </div>
+                  {roster.length === 0 ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      No speakers yet — add one, then assign turns below.
+                    </p>
+                  ) : (
+                    <ul className="mt-2 space-y-1.5">
+                      {roster.map((name) => {
+                        const count = turns.filter(
+                          (t) => t.speaker.trim().toLowerCase() === name.toLowerCase()
+                        ).length;
+                        return (
+                          <li key={name.toLowerCase()} className="flex items-center gap-2">
+                            <AssigneeAvatar name={name} size="sm" />
+                            <input
+                              value={name}
+                              onChange={(e) => renameSpeaker(name, e.target.value)}
+                              aria-label={`Rename ${name}`}
+                              maxLength={32}
+                              className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-background px-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring"
+                            />
+                            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                              {count} {count === 1 ? "turn" : "turns"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => removeSpeaker(name)}
+                              disabled={roster.length <= 1}
+                              aria-label={`Remove ${name}`}
+                              title="Remove speaker (turns move to the first remaining speaker)"
+                              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-30"
+                            >
+                              <X className="size-3.5" />
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+                {turns.map((t, i) => {
+                  const canonical =
+                    roster.find(
+                      (n) => n.toLowerCase() === t.speaker.trim().toLowerCase()
+                    ) ?? "";
+                  return (
                   <div key={i} className="flex items-start gap-2">
-                    <input
-                      value={t.speaker}
-                      onChange={(e) => updateTurn(i, { speaker: e.target.value })}
-                      aria-label={`Speaker for turn ${i + 1}`}
-                      placeholder="Speaker"
-                      maxLength={32}
-                      className="h-9 w-24 shrink-0 rounded-lg border border-input bg-transparent px-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring"
-                    />
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      <AssigneeAvatar name={canonical || "Unknown"} size="sm" />
+                      <select
+                        value={canonical}
+                        onChange={(e) => updateTurn(i, { speaker: e.target.value })}
+                        aria-label={`Speaker for turn ${i + 1}`}
+                        className="h-9 max-w-28 truncate rounded-lg border border-input bg-transparent px-1.5 text-sm outline-none focus-visible:border-ring"
+                      >
+                        {!canonical ? (
+                          <option value="">Unknown</option>
+                        ) : null}
+                        {roster.map((name) => (
+                          <option key={name.toLowerCase()} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                    </span>
                     <textarea
                       value={t.text}
                       onChange={(e) => updateTurn(i, { text: e.target.value })}
@@ -705,13 +822,14 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
                       <X className="size-3.5" />
                     </button>
                   </div>
-                ))}
+                  );
+                })}
                 <button
                   type="button"
                   onClick={addTurn}
                   className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  ＋ Add speaker turn
+                  ＋ Add turn
                 </button>
               </div>
             ) : (
