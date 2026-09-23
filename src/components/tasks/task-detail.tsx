@@ -19,6 +19,7 @@ import type {
   TaskStatus,
 } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
+import { isOverdueTask } from "@/lib/due";
 import { LIBRARY_TYPE_LABEL, resolveDocType } from "@/lib/doc-type";
 import { assigneesEqual, formatAssignees, getTaskAssignees, parseAssignees } from "@/lib/assignees";
 import { AssigneeStack } from "@/components/tasks/hues";
@@ -483,7 +484,7 @@ export function TaskDetail({
         </div>
       ) : (
         <>
-          <dl className="mx-auto mt-6 grid grid-cols-2 gap-x-6 gap-y-1 rounded-xl border border-border bg-card p-5 sm:grid-cols-3 lg:grid-cols-5">
+          <dl className="mx-auto mt-6 grid max-w-prose grid-cols-2 gap-x-6 gap-y-1 rounded-xl border border-border bg-card p-5 sm:grid-cols-3 lg:grid-cols-5">
             <Field label="Status">{getStatusLabel(status)}</Field>
             <Field label="Priority">{task.priority ? priorityCapital(task.priority) : "—"}</Field>
             <Field label="Assignees">
@@ -496,7 +497,15 @@ export function TaskDetail({
                 "—"
               )}
             </Field>
-            <Field label="Due date">{formatDate(task.dueDate) ?? "—"}</Field>
+            <Field label="Due date">
+              {task.dueDate ? (
+                <span className={isOverdueTask(task) ? "font-medium text-destructive" : undefined}>
+                  {formatDate(task.dueDate)}
+                </span>
+              ) : (
+                "—"
+              )}
+            </Field>
             <Field label="Tags">
               {task.tags && task.tags.length > 0 ? (
                 <span className="flex flex-wrap items-center gap-1.5">

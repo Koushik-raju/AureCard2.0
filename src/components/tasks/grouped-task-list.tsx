@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { CalendarDays, Check, ChevronDown, Flag, ListTodo, MessageSquare, Paperclip, Pencil, Plus, UserRound, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AssigneeEditor, CellInput, CellShell } from "./inline-cells";
-import { AssigneeAvatar, AssigneeStack, PriorityFlag, TagPill, statusHue } from "./hues";
+import { AssigneeAvatar, AssigneeStack, PriorityFlag, statusHue } from "./hues";
 import { formatAssignees, getTaskAssignees, parseAssignees } from "@/lib/assignees";
 import type { Task, TaskItem, TaskPriority, TaskStatus } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
@@ -279,10 +279,10 @@ export function GroupedTaskList({
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-border">
-        <div className="min-w-[760px]">
+        <div className="min-w-[800px]">
           <div
             role="row"
-            className="grid grid-cols-[20px_32px_minmax(0,1fr)_128px_110px_104px_150px] items-center gap-2 border-b border-border bg-muted/50 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
+            className="grid grid-cols-[20px_32px_minmax(200px,1fr)_128px_110px_104px_150px] items-center gap-2 border-b border-border bg-muted/50 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
           >
             <span aria-hidden="true" />
             <span aria-hidden="true" />
@@ -472,25 +472,25 @@ function AssigneeCellButton({
 }) {
   const owners = getTaskAssignees(task);
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      disabled={disabled}
-      className="flex max-w-full items-center gap-1.5 rounded-md px-1 py-1 text-left text-[13px] hover:bg-muted"
-      title={owners.length > 0 ? owners.join(", ") : "Set assignees"}
-    >
-      {owners.length > 0 ? (
-        <>
-          <AssigneeStack names={owners} size="sm" max={3} />
-          <span className="truncate">
-            {owners.slice(0, 2).join(", ")}
-            {owners.length > 2 ? ` +${owners.length - 2}` : ""}
-          </span>
-        </>
-      ) : (
-        <UserRound className="size-4 text-muted-foreground/40" aria-label="No assignee" />
-      )}
-    </button>
+      <button
+        type="button"
+        onClick={onOpen}
+        disabled={disabled}
+        className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-1 py-1 text-left text-[13px] hover:bg-muted"
+        title={owners.length > 0 ? owners.join(", ") : "Set assignees"}
+      >
+        {owners.length > 0 ? (
+          <>
+            <AssigneeStack names={owners} size="sm" max={2} />
+            <span className="min-w-0 flex-1 truncate">
+              {owners[0]}
+              {owners.length > 1 ? ` +${owners.length - 1}` : ""}
+            </span>
+          </>
+        ) : (
+          <UserRound className="size-4 text-muted-foreground/40" aria-label="No assignee" />
+        )}
+      </button>
   );
 }
 
@@ -582,7 +582,7 @@ function TaskRow({
     >
       <div
         role="row"
-        className="grid grid-cols-[20px_32px_minmax(0,1fr)_128px_110px_104px_150px] items-center gap-2 px-3 py-2"
+        className="grid grid-cols-[20px_32px_minmax(200px,1fr)_128px_110px_104px_150px] items-center gap-2 px-3 py-2"
       >
       <button
         type="button"
@@ -659,8 +659,8 @@ function TaskRow({
                 {task.title}
               </span>
             )}
-            <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-normal text-muted-foreground/70">
-              <span className="truncate">
+            <span className="flex min-w-0 max-w-[42%] shrink-0 items-center gap-1.5 overflow-hidden text-[10px] font-normal text-muted-foreground/70">
+              <span className="min-w-0 flex-1 truncate">
                 {[projectName, spaceName].filter(Boolean).join(" · ")}
               </span>
               {subtaskCount > 0 ? (
@@ -674,16 +674,6 @@ function TaskRow({
                   <ListTodo className="size-3" />
                   {subtaskCount}
                 </button>
-              ) : null}
-              {task.tags && task.tags.length > 0 ? (
-                <span className="flex min-w-0 items-center gap-1">
-                  {task.tags.slice(0, 2).map((t) => (
-                    <TagPill key={t} tag={t} />
-                  ))}
-                  {task.tags.length > 2 ? (
-                    <span className="shrink-0">+{task.tags.length - 2}</span>
-                  ) : null}
-                </span>
               ) : null}
               {attachmentCount > 0 ? (
                 <span className="inline-flex shrink-0 items-center gap-0.5" title={`${attachmentCount} attachments`}>

@@ -11,6 +11,7 @@ import {
   type EditTaskItemInput,
 } from "@/lib/mutations";
 import { isEmptyBody, parseTaskBody } from "@/lib/task-body";
+import { todayKey } from "@/lib/due";
 import { PriorityDot, formatShortDate } from "./task-visuals";
 import { CellInput, CellShell } from "./inline-cells";
 import { TaskDocEditor } from "./task-doc-editor";
@@ -56,6 +57,19 @@ export function SubtaskTree({
   if (roots.length === 0) return null;
   return (
     <ul className="mt-3 space-y-1">
+      <li
+        aria-hidden="true"
+        className="grid grid-cols-[20px_20px_minmax(0,1fr)_104px_92px_92px_28px_28px] items-center gap-1.5 rounded-lg px-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
+      >
+        <span />
+        <span />
+        <span>Subtask</span>
+        <span>Assignee</span>
+        <span>Due</span>
+        <span>Priority</span>
+        <span />
+        <span />
+      </li>
       {roots.map((item) => (
         <SubtaskRow
           key={item.id}
@@ -267,7 +281,10 @@ function SubtaskRow({
                 setDraftCell(view.dueDate ?? "");
               }}
               disabled={isPending}
-              className="block rounded px-1 py-0.5 text-left text-xs tabular-nums hover:bg-muted"
+              className={cn(
+                "block rounded px-1 py-0.5 text-left text-xs tabular-nums hover:bg-muted",
+                view.dueDate && !done && view.dueDate < todayKey() && "font-medium text-destructive"
+              )}
             >
               {view.dueDate ? (
                 formatShortDate(view.dueDate)
