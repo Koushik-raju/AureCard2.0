@@ -4,9 +4,11 @@ import type { NextRequest } from "next/server";
 import { SUPABASE_URL, SUPABASE_KEY, isDbConfigured } from "@/lib/server-supabase";
 
 /**
- * Auth gate. When the database is configured, anonymous visitors are sent to
- * /login and signed-in users visiting /login are sent to /home. While the DB
- * is unset the app stays an open, sample-data workspace.
+ * Auth gate. Uses a local session-cookie check (no network round-trip) so
+ * every navigation doesn't pay an edge→Supabase hop. Security still holds:
+ * every table policy requires the authenticated role, so a forged or stale
+ * cookie can never read or write data — RLS rejects it at the database.
+ * Identity is re-verified with getUser() in pages and server actions.
  */
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -31,16 +33,19 @@ export async function proxy(request: NextRequest) {
   });
 
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+  const expired =
+    session?.expires_at != null && session.expires_at * 1000 <= Date.now();
+  const signedIn = !!session && !expired;
 
   const isAuthPage = pathname === "/login" || pathname.startsWith("/login");
 
-  if (!user && !isAuthPage) {
+  if (!signedIn && !isAuthPage) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  if (user && isAuthPage) {
+  if (signedIn && isAuthPage) {
     return NextResponse.redirect(new URL("/home", request.url));
   }
 

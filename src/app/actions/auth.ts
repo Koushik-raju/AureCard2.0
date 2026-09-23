@@ -1,19 +1,21 @@
 "use server";
 
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { createServerSupabase, isDbConfigured } from "@/lib/server-supabase";
 
 export type AuthResult = { error?: string };
 
-export async function getCurrentUser(): Promise<User | null> {
+/** Request-memoized: layout + page calling this in one render share one lookup. */
+export const getCurrentUser = cache(async (): Promise<User | null> => {
   if (!isDbConfigured) return null;
   const client = createServerSupabase();
   if (!client) return null;
   const { data, error } = await client.auth.getUser();
   if (error || !data.user) return null;
   return data.user;
-}
+});
 
 export async function signIn(
   email: string,
