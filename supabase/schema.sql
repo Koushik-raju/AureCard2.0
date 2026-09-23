@@ -187,6 +187,12 @@ alter table documents add column if not exists duration_secs integer;
 alter table documents add column if not exists summary text;
 alter table documents add column if not exists note_type text;
 
+-- Prepared notes link back to the recording they were made from.
+alter table documents add column if not exists source_doc_id text;
+alter table documents drop constraint if exists documents_source_doc_id_fkey;
+alter table documents add constraint documents_source_doc_id_fkey foreign key (source_doc_id) references documents(id) on delete set null;
+create index if not exists idx_docs_source_doc on documents(source_doc_id);
+
 -- ---------- Indexes ----------
 
 create index if not exists idx_projects_space on projects(space_id);

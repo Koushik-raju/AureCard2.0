@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition, useId, createContext, useContext } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition, useId, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { MoreHorizontal, Pencil, Trash2, AlertTriangle } from "lucide-react";
@@ -10,6 +10,15 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 const DropdownContext = createContext<{ close: () => void }>({ close: () => {} });
+
+/** True only on the client — portals have no SSR HTML, so this gates them. */
+function useMounted(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+}
 
 export function Dropdown({
   trigger,
@@ -31,13 +40,7 @@ export function Dropdown({
   useEffect(() => {
     closeRef.current = close;
   });
-  const [mounted, setMounted] = useState(false);
-  // Portals can't hydrate (no SSR HTML for body-level content), so mount-gating
-  // needs the effect — this is the standard documented workaround.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useMounted();
 
   useEffect(() => {
     onOpenChange?.(open);

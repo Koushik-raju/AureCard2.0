@@ -2,6 +2,7 @@ import type { NoteType, RecordingType } from "@/lib/types";
 
 export const RECORDING_TYPES: { key: RecordingType; label: string }[] = [
   { key: "meeting", label: "Meetings" },
+  { key: "conversation", label: "Conversations" },
   { key: "call", label: "Calls" },
   { key: "thought", label: "Thoughts" },
   { key: "lecture", label: "Lectures" },

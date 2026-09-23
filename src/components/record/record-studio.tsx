@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Disc3, Mic, Pause, Play, RotateCcw, Save, Square } from "lucide-react";
+import { Disc3, Mic, Pause, Play, RotateCcw, Save, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +12,11 @@ import { getVoicePrefs } from "@/lib/prefs";
 import { RECORDING_TYPES } from "@/lib/note-types";
 import {
   extractTaskSuggestions,
+  formatTurns,
+  parseTurns,
+  stripSpeakers,
   summarizeTranscript,
+  type Turn,
 } from "@/lib/transcript";
 import type { RecordingType, Space } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -73,6 +77,13 @@ function defaultTitle(now: Date): string {
   return `Recording ${day}, ${time}`;
 }
 
+function nextSpeakerLabel(list: Turn[]): string {
+  const last = list[list.length - 1]?.speaker.trim();
+  if (last === "Speaker 1") return "Speaker 2";
+  if (last === "Speaker 2") return "Speaker 1";
+  return `Speaker ${list.length + 1}`;
+}
+
 export function RecordStudio({ spaces }: { spaces: Space[] }) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("idle");
@@ -81,6 +92,15 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
   const [micDenied, setMicDenied] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
+  // Speaker turns are the single source of truth for what was said; the plain
+  // transcript string mirrors them for the non-conversation UI and save path.
+  const [turns, setTurns] = useState<Turn[]>([{ speaker: "Speaker 1", text: "" }]);
+  const [turnInterim, setTurnInterim] = useState("");
+  const turnsRef = useRef<Turn[]>([{ speaker: "Speaker 1", text: "" }]);
+  useEffect(() => {
+    turnsRef.current = turns;
+  }, [turns]);
+  const lastFinalAtRef = useRef(0);
   const [transcribing, setTranscribing] = useState(false);
   const [transcriptUnsupported, setTranscriptUnsupported] = useState(false);
   const [title, setTitle] = useState("");
@@ -172,6 +192,44 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
     }, 250);
   }, []);
 
+  const refreshSuggestions = useCallback((plain: string) => {
+    const next = extractTaskSuggestions(plain);
+    setSuggestions(next);
+    setChecked(next.map(() => true));
+  }, []);
+
+  /** Single-source update: turns → formatted text → suggestions. */
+  const syncFromTurns = useCallback((next: Turn[]) => {
+    setTurns(next);
+    const formatted = formatTurns(next);
+    setTranscript(formatted);
+    refreshSuggestions(stripSpeakers(formatted));
+  }, [refreshSuggestions]);
+
+  /** Append finalized speech; a pause before it usually means a new speaker. */
+  const appendFinalChunk = useCallback((text: string) => {
+    const chunk = text.trim();
+    if (!chunk) return;
+    const now = Date.now();
+    const list = turnsRef.current;
+    const last = list[list.length - 1];
+    const gap = now - lastFinalAtRef.current;
+    lastFinalAtRef.current = now;
+    setTurnInterim("");
+    if (gap > 6000 && last && last.text.trim()) {
+      syncFromTurns([...list, { speaker: nextSpeakerLabel(list), text: chunk }]);
+    } else if (last) {
+      const next = [...list];
+      next[next.length - 1] = {
+        ...last,
+        text: last.text ? `${last.text} ${chunk}` : chunk,
+      };
+      syncFromTurns(next);
+    } else {
+      syncFromTurns([{ speaker: "Speaker 1", text: chunk }]);
+    }
+  }, [syncFromTurns]);
+
   const attachRecognition = useCallback((lang: string) => {
     const Ctor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!Ctor) {
@@ -185,14 +243,20 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
       rec.interimResults = true;
       rec.onresult = (event) => {
         let interim = "";
+        const finals: string[] = [];
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const res = event.results[i];
           const text = res[0]?.transcript ?? "";
-          if (res.isFinal) finalTranscriptRef.current += `${text}\n`;
+          if (!text.trim()) continue;
+          if (res.isFinal) finals.push(text.trim());
           else interim += text;
         }
-        const combined = `${finalTranscriptRef.current}${interim ? `\n${interim}` : ""}`.trim();
-        setTranscript(combined);
+        if (finals.length > 0) {
+          finalTranscriptRef.current += `${finals.join(" ")}\n`;
+          appendFinalChunk(finals.join(" "));
+        } else {
+          setTurnInterim(interim.trim());
+        }
       };
       rec.onerror = () => {
         /* keep recording; transcription is best-effort */
@@ -215,12 +279,17 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
     } catch {
       setTranscriptUnsupported(true);
     }
-  }, []);
+  }, [appendFinalChunk]);
 
   async function start() {
     setError(null);
     setMicDenied(false);
     setTranscript("");
+    const fresh: Turn[] = [{ speaker: "Speaker 1", text: "" }];
+    setTurns(fresh);
+    turnsRef.current = fresh;
+    setTurnInterim("");
+    lastFinalAtRef.current = 0;
     setSuggestions([]);
     setChecked([]);
     finalTranscriptRef.current = "";
@@ -250,11 +319,10 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
         setAudioUrl(url);
         setPhase("review");
         setTitle((t) => t || defaultTitle(new Date()));
-        setSuggestions(extractTaskSuggestions(finalTranscriptRef.current));
-        setChecked((prev) => {
-          if (prev.length > 0) return prev;
-          return extractTaskSuggestions(finalTranscriptRef.current).map(() => true);
-        });
+        const plain = stripSpeakers(formatTurns(turnsRef.current));
+        finalTranscriptRef.current = plain ? `${plain}\n` : "";
+        setTranscript(formatTurns(turnsRef.current));
+        refreshSuggestions(plain);
       };
       recorderRef.current = recorder;
 
@@ -305,10 +373,10 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
       recorderRef.current.resume();
       pausedTotalRef.current += Date.now() - pauseStartRef.current;
       pauseStartRef.current = 0;
+      lastFinalAtRef.current = Date.now();
       setPhase("recording");
       const prefs = getVoicePrefs();
       if (prefs.transcription) {
-        finalTranscriptRef.current = transcript ? `${transcript}\n` : "";
         attachRecognition(prefs.lang);
       }
     }
@@ -333,6 +401,10 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl(null);
     setTranscript("");
+    const fresh: Turn[] = [{ speaker: "Speaker 1", text: "" }];
+    setTurns(fresh);
+    turnsRef.current = fresh;
+    setTurnInterim("");
     setSuggestions([]);
     setChecked([]);
     setTitle("");
@@ -344,6 +416,26 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
   function toggleSuggestion(i: number) {
     setChecked((prev) => prev.map((c, idx) => (idx === i ? !c : c)));
   }
+
+  function addTurn() {
+    const list = turnsRef.current;
+    const next: Turn = { speaker: nextSpeakerLabel(list), text: "" };
+    const updated = [...list, next];
+    setTurns(updated);
+    setTranscript(formatTurns(updated));
+  }
+
+  function updateTurn(index: number, patch: Partial<Turn>) {
+    const list = turnsRef.current.map((t, i) => (i === index ? { ...t, ...patch } : t));
+    syncFromTurns(list);
+  }
+
+  function removeTurn(index: number) {
+    const list = turnsRef.current.filter((_, i) => i !== index);
+    syncFromTurns(list.length > 0 ? list : [{ speaker: "Speaker 1", text: "" }]);
+  }
+
+  const isConvType = recordingType === "conversation" || recordingType === "meeting";
 
   function save() {
     const trimmedTitle = title.trim() || defaultTitle(new Date());
@@ -362,7 +454,13 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
         return;
       }
       const durationSecs = Math.max(1, Math.round(elapsed));
-      const cleanTranscript = transcript.trim();
+      const formatted = formatTurns(turnsRef.current);
+      // Conversations keep "Speaker: …" lines; monologues store plain text.
+      const cleanTranscript = (
+        recordingType === "conversation" || recordingType === "meeting"
+          ? formatted
+          : stripSpeakers(formatted)
+      ).trim();
       const result = await createDocument({
         title: trimmedTitle,
         spaceId,
@@ -442,10 +540,23 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
               Live transcription isn&apos;t available in this browser — the audio still records normally.
             </p>
           )}
-          {transcript && (
-            <p className="mt-3 max-h-28 overflow-y-auto rounded-lg border border-border bg-background p-3 text-sm leading-relaxed">
-              {transcript}
-            </p>
+          {(() => {
+            const liveBase = isConvType ? formatTurns(turns) : stripSpeakers(formatTurns(turns));
+            const live = `${liveBase}${turnInterim ? `\n${turnInterim}` : ""}`.trim();
+            return live ? (
+              <p className="mt-3 max-h-28 overflow-y-auto rounded-lg border border-border bg-background p-3 text-sm leading-relaxed">
+                {live}
+              </p>
+            ) : null;
+          })()}
+          {isConvType && (
+            <button
+              type="button"
+              onClick={addTurn}
+              className="mt-2 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              ＋ New speaker turn
+            </button>
           )}
           <div className="mt-4 flex flex-wrap gap-2">
             {recording ? (
@@ -471,6 +582,32 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
             Library with suggested follow-up tasks. Nothing leaves your
             browser until you hit save.
           </p>
+          <div className="mt-3 space-y-2">
+            <span className="text-sm font-medium" id="rec-type-label-idle">What are you recording?</span>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-labelledby="rec-type-label-idle">
+              {RECORDING_TYPES.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setRecordingType(t.key)}
+                  aria-pressed={recordingType === t.key}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    recordingType === t.key
+                      ? "border-foreground bg-muted text-foreground"
+                      : "border-border text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {(recordingType === "conversation" || recordingType === "meeting") && (
+              <p className="text-xs text-muted-foreground">
+                Conversation mode splits speech into speaker turns — fix names after you stop.
+              </p>
+            )}
+          </div>
           <Button onClick={start} className="mt-4 min-h-11">
             <Mic className="size-4" /> Start recording
           </Button>
@@ -535,23 +672,60 @@ export function RecordStudio({ spaces }: { spaces: Space[] }) {
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="rec-transcript">
+            <Label id="rec-transcript-label">
               Transcript {transcript ? "" : "(add one manually or leave empty)"}
             </Label>
-            <textarea
-              id="rec-transcript"
-              rows={5}
-              value={transcript}
-              onChange={(e) => {
-                setTranscript(e.target.value);
-                finalTranscriptRef.current = e.target.value;
-                const next = extractTaskSuggestions(e.target.value);
-                setSuggestions(next);
-                setChecked(next.map(() => true));
-              }}
-              placeholder="What was said… edit freely — this becomes the note's transcript."
-              className="w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring"
-            />
+            {isConvType ? (
+              <div className="space-y-2" role="group" aria-labelledby="rec-transcript-label">
+                {turns.map((t, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <input
+                      value={t.speaker}
+                      onChange={(e) => updateTurn(i, { speaker: e.target.value })}
+                      aria-label={`Speaker for turn ${i + 1}`}
+                      placeholder="Speaker"
+                      maxLength={32}
+                      className="h-9 w-24 shrink-0 rounded-lg border border-input bg-transparent px-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring"
+                    />
+                    <textarea
+                      value={t.text}
+                      onChange={(e) => updateTurn(i, { text: e.target.value })}
+                      aria-label={`Turn ${i + 1} text`}
+                      rows={2}
+                      placeholder="What was said…"
+                      className="min-w-0 flex-1 resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeTurn(i)}
+                      disabled={turns.length <= 1 && !t.text && !t.speaker}
+                      aria-label={`Remove turn ${i + 1}`}
+                      className="rounded-md px-2 py-2 text-xs text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-30"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addTurn}
+                  className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  ＋ Add speaker turn
+                </button>
+              </div>
+            ) : (
+              <textarea
+                id="rec-transcript"
+                rows={5}
+                value={stripSpeakers(transcript)}
+                onChange={(e) => {
+                  syncFromTurns(parseTurns(e.target.value));
+                }}
+                placeholder="What was said… edit freely — this becomes the note's transcript."
+                className="w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring"
+              />
+            )}
           </div>
           {suggestions.length > 0 && (
             <fieldset className="space-y-2">

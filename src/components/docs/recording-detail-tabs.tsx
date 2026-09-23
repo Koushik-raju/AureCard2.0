@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { Check, Copy, ListTodo, Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, Copy, FileText, ListTodo, Plus, Sparkles } from "lucide-react";
 import type {
   DocumentAttachment,
   DocumentBlock,
@@ -14,10 +15,13 @@ import { BlockEditor } from "@/components/docs/block-editor";
 import { FileDocumentView } from "@/components/docs/file-document-view";
 import { LinkedTaskChip } from "@/components/docs/linked-task-chip";
 import { Button } from "@/components/ui/button";
+import { buildNoteSections } from "@/lib/transcript";
+import { createPreparedNote } from "@/lib/mutations";
 
 const TABS = [
   { value: "summary", label: "Summary" },
   { value: "transcript", label: "Transcript" },
+  { value: "notes", label: "Notes" },
   { value: "tasks", label: "Tasks" },
   { value: "mindmap", label: "Mind map" },
 ] as const;
@@ -57,6 +61,178 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   );
 }
 
+function NoteField({
+  label,
+  value,
+  onChange,
+  rows = 4,
+  hint,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  rows?: number;
+  hint?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-sm font-medium">{label}</label>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={rows}
+        placeholder={hint ?? `One item per line…`}
+        className="w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring"
+      />
+    </div>
+  );
+}
+
+function NotesSection({
+  document,
+  transcriptText,
+  preparedNotes,
+  draft,
+  setDraft,
+  noteError,
+  setNoteError,
+  savedNoteId,
+  setSavedNoteId,
+  isPending,
+  startTransition,
+  onSaved,
+}: {
+  document: DocumentRef;
+  transcriptText: string;
+  preparedNotes: DocumentRef[];
+  draft: NoteDraft | null;
+  setDraft: (d: NoteDraft | null) => void;
+  noteError: string | null;
+  setNoteError: (e: string | null) => void;
+  savedNoteId: string | null;
+  setSavedNoteId: (id: string | null) => void;
+  isPending: boolean;
+  startTransition: React.TransitionStartFunction;
+  onSaved: () => void;
+}) {
+  function startDraft() {
+    const s = buildNoteSections(transcriptText);
+    setDraft({
+      summary: s.summary,
+      keyPoints: s.keyPoints.join("\n"),
+      actions: s.actions.join("\n"),
+      decisions: s.decisions.join("\n"),
+      questions: s.questions.join("\n"),
+    });
+    setNoteError(null);
+    setSavedNoteId(null);
+  }
+
+  function save() {
+    if (!draft) return;
+    setNoteError(null);
+    startTransition(async () => {
+      const result = await createPreparedNote({
+        sourceDocId: document.id,
+        sourceTitle: document.title,
+        title: `${document.title} — Notes`,
+        spaceId: document.spaceId,
+        projectId: document.projectId,
+        sections: {
+          summary: draft.summary,
+          keyPoints: draft.keyPoints.split(/\n+/),
+          actions: draft.actions.split(/\n+/),
+          decisions: draft.decisions.split(/\n+/),
+          questions: draft.questions.split(/\n+/),
+        },
+      });
+      if (result.error || !result.id) {
+        setNoteError(result.error ?? "Could not save this note.");
+        return;
+      }
+      setSavedNoteId(result.id);
+      setDraft(null);
+      onSaved();
+    });
+  }
+
+  return (
+    <section aria-label="Prepared notes">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-serif text-xl font-medium tracking-tight">
+          Prepared notes
+        </h2>
+        {!draft ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="min-h-9"
+            disabled={!transcriptText.trim() || isPending}
+            onClick={startDraft}
+            title={transcriptText.trim() ? "Draft a structured note from the transcript" : "Needs a transcript first"}
+          >
+            <Sparkles className="size-4" />
+            Prepare notes
+          </Button>
+        ) : null}
+      </div>
+
+      {preparedNotes.length > 0 || savedNoteId ? (
+        <ul className="mb-4 space-y-2">
+          {savedNoteId ? (
+            <li key={savedNoteId} className="rounded-xl border border-primary/40 bg-primary/5 p-4">
+              <Link
+                href={`/docs/${savedNoteId}`}
+                className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
+              >
+                <FileText className="size-4" /> Open the note you just prepared
+              </Link>
+            </li>
+          ) : null}
+          {preparedNotes.map((note) => (
+            <li key={note.id} className="rounded-xl border border-border bg-card p-4">
+              <Link
+                href={`/docs/${note.id}`}
+                className="inline-flex items-center gap-2 text-sm font-medium hover:text-primary hover:underline"
+              >
+                <FileText className="size-4 shrink-0 text-muted-foreground" />
+                <span className="truncate">{note.title}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {draft ? (
+        <div className="space-y-4 rounded-xl border border-border bg-card p-4">
+          <p className="text-sm text-muted-foreground">
+            Drafted from the transcript — edit anything, then save it as a note linked to this recording.
+          </p>
+          <NoteField label="Summary" value={draft.summary} onChange={(v) => setDraft({ ...draft, summary: v })} rows={3} hint="A few sentences…" />
+          <NoteField label="Key points" value={draft.keyPoints} onChange={(v) => setDraft({ ...draft, keyPoints: v })} />
+          <NoteField label="Action items" value={draft.actions} onChange={(v) => setDraft({ ...draft, actions: v })} />
+          <NoteField label="Decisions" value={draft.decisions} onChange={(v) => setDraft({ ...draft, decisions: v })} />
+          <NoteField label="Open questions" value={draft.questions} onChange={(v) => setDraft({ ...draft, questions: v })} />
+          {noteError ? <p className="text-sm text-destructive">{noteError}</p> : null}
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={save} disabled={isPending} className="min-h-9">
+              {isPending ? "Saving…" : "Save note"}
+            </Button>
+            <Button variant="outline" onClick={() => { setDraft(null); setNoteError(null); }} disabled={isPending} className="min-h-9">
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : preparedNotes.length === 0 && !savedNoteId ? (
+        <p className="rounded-xl border border-dashed border-border bg-muted/40 px-6 py-10 text-center text-sm text-muted-foreground">
+          No notes yet. Prepare one from the transcript — summary, key points,
+          action items, decisions and open questions, ready to edit.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 type MindNode = { id: string; title: string; body: string[] };
 
 function buildMindNodes(blocks: DocumentBlock[]): MindNode[] {
@@ -83,6 +259,15 @@ type RecordingDetailTabsProps = {
   attachments: DocumentAttachment[];
   linkedTasks: Task[];
   taskTitles: Record<string, string>;
+  preparedNotes: DocumentRef[];
+};
+
+type NoteDraft = {
+  summary: string;
+  keyPoints: string;
+  actions: string;
+  decisions: string;
+  questions: string;
 };
 
 export function RecordingDetailTabs({
@@ -91,8 +276,14 @@ export function RecordingDetailTabs({
   attachments,
   linkedTasks,
   taskTitles,
+  preparedNotes,
 }: RecordingDetailTabsProps) {
+  const router = useRouter();
   const [tab, setTab] = useState<TabValue>("summary");
+  const [draft, setDraft] = useState<NoteDraft | null>(null);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [savedNoteId, setSavedNoteId] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
   const isFile = document.kind === "file";
   const audioFile = useMemo(
     () => attachments.find((a) => a.mime.startsWith("audio/")) ?? null,
@@ -187,12 +378,29 @@ export function RecordingDetailTabs({
                   ))}
                 </ol>
                 <p className="mt-4 text-xs text-muted-foreground">
-                  Live transcription captures raw text — speaker labels and
-                  per-line timestamps aren&apos;t separated yet.
+                  Live transcription captures raw text — conversation recordings
+                  keep per-speaker turns you can rename later.
                 </p>
               </>
             )}
           </section>
+        ) : null}
+
+        {tab === "notes" ? (
+          <NotesSection
+            document={document}
+            transcriptText={transcriptText}
+            preparedNotes={preparedNotes}
+            draft={draft}
+            setDraft={setDraft}
+            noteError={noteError}
+            setNoteError={setNoteError}
+            savedNoteId={savedNoteId}
+            setSavedNoteId={setSavedNoteId}
+            isPending={isPending}
+            startTransition={startTransition}
+            onSaved={() => router.refresh()}
+          />
         ) : null}
 
         {tab === "tasks" ? (

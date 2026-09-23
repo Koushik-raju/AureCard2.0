@@ -106,7 +106,7 @@ function mapActivity(r: Row): TaskActivity {
   };
 }
 
-const RECORDING_TYPES = new Set(["meeting", "call", "thought", "lecture"]);
+const RECORDING_TYPES = new Set(["meeting", "call", "thought", "lecture", "conversation"]);
 const NOTE_TYPES = new Set(["general", "meeting", "soap"]);
 
 function mapDocument(r: Row): DocumentRef {
@@ -117,6 +117,7 @@ function mapDocument(r: Row): DocumentRef {
     projectId: r.project_id ? String(r.project_id) : undefined,
     kind: (r.kind ?? "doc") as DocumentRef["kind"],
     taskIds: Array.isArray(r.task_ids) ? r.task_ids.map((t) => String(t)) : undefined,
+    sourceDocId: r.source_doc_id ? String(r.source_doc_id) : undefined,
     createdAt: r.created_at ? String(r.created_at) : undefined,
     recordingType: typeof r.recording_type === "string" && RECORDING_TYPES.has(r.recording_type)
       ? (r.recording_type as DocumentRef["recordingType"])
@@ -359,6 +360,12 @@ export async function getActivityForTask(taskId: string): Promise<TaskActivity[]
 export async function getDocumentsForTask(taskId: string): Promise<DocumentRef[]> {
   const all = await getDocuments();
   return all.filter((d) => d.taskIds?.includes(taskId));
+}
+
+/** Notes prepared from a recording (or any source document). */
+export async function getDocumentsForSource(sourceDocId: string): Promise<DocumentRef[]> {
+  const all = await getDocuments();
+  return all.filter((d) => d.sourceDocId === sourceDocId);
 }
 
 export async function getTasksForDocument(documentId: string): Promise<Task[]> {

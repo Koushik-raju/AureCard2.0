@@ -115,6 +115,8 @@ export type DocumentRef = {
   kind: "doc" | "note" | "file";
   /** Tasks this document is linked to. */
   taskIds?: string[];
+  /** Recording/note this document was prepared from (notes prepared from recordings). */
+  sourceDocId?: string;
   /** ISO timestamp for library time grouping (DB only; absent on old rows). */
   createdAt?: string;
   /** Aure-style filing for recordings: what the note sounds like. */
@@ -127,7 +129,7 @@ export type DocumentRef = {
   noteType?: NoteType;
 };
 
-export type RecordingType = "meeting" | "call" | "thought" | "lecture";
+export type RecordingType = "meeting" | "call" | "thought" | "lecture" | "conversation";
 
 export type NoteType = "general" | "meeting" | "soap";
 

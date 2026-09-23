@@ -9,6 +9,7 @@ import {
   getProject,
   getTasksForDocument,
   getDocumentAttachmentsForDocument,
+  getDocumentsForSource,
 } from "@/lib/repository";
 import { accentStyles } from "@/lib/accents";
 import { RecordingDetailTabs } from "@/components/docs/recording-detail-tabs";
@@ -26,7 +27,7 @@ export default async function DocumentPage({
   const document = await getDocument(id);
   if (!document) notFound();
 
-  const [space, project, blocks, attachments, linkedTasks, allTasks] =
+  const [space, project, blocks, attachments, linkedTasks, allTasks, preparedNotes] =
     await Promise.all([
       getSpace(document.spaceId),
       document.projectId
@@ -36,7 +37,9 @@ export default async function DocumentPage({
       getDocumentAttachmentsForDocument(id),
       getTasksForDocument(id),
       getTasks(),
+      getDocumentsForSource(id),
     ]);
+  const sourceDoc = document.sourceDocId ? await getDocument(document.sourceDocId) : undefined;
   const accent = accentStyles(space?.accent ?? "ink");
 
   const taskTitles: Record<string, string> = {};
@@ -114,6 +117,18 @@ export default async function DocumentPage({
         </p>
       ) : null}
 
+      {sourceDoc ? (
+        <p className="mt-6 text-sm text-muted-foreground">
+          Prepared from{" "}
+          <Link
+            href={`/docs/${sourceDoc.id}`}
+            className="underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+          >
+            {sourceDoc.title}
+          </Link>
+        </p>
+      ) : null}
+
       <div className="mt-6">
         <RecordingDetailTabs
           document={document}
@@ -121,6 +136,7 @@ export default async function DocumentPage({
           attachments={attachments}
           linkedTasks={linkedTasks}
           taskTitles={taskTitles}
+          preparedNotes={preparedNotes}
         />
       </div>
     </ContentWrap>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Check, Plus, X } from "lucide-react";
 import { parseAssignees } from "@/lib/assignees";
@@ -11,6 +11,15 @@ import { AssigneeAvatar } from "./hues";
  * The popover is viewport-fixed (measured from the trigger) so it floats
  * above scroll containers instead of being clipped inside them.
  */
+
+/** True only on the client — portals have no SSR HTML, so this gates them. */
+function useMounted(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+}
 export function CellShell({
   open,
   onClose,
@@ -79,13 +88,7 @@ export function CellShell({
   // Portaled while open: the overlay + menu live on document.body so no
   // ancestor (opacity, filter, transform, overflow) can trap them underneath
   // column content. SSR-safe via the mounted flag.
-  const [mounted, setMounted] = useState(false);
-  // Portals can't hydrate (no SSR HTML for body-level content), so mount-gating
-  // needs the effect — this is the standard documented workaround.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useMounted();
 
   return (
     <>

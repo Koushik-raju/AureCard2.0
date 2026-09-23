@@ -492,6 +492,8 @@ type CreateDocumentInput = {
   summary?: string;
   /** Full transcript text; stored as paragraph blocks (also for file docs). */
   transcript?: string;
+  /** Document this one was prepared from (notes prepared from recordings). */
+  sourceDocId?: string;
 };
 export async function createDocument(
   input: CreateDocumentInput
@@ -517,6 +519,7 @@ export async function createDocument(
       projectId: input.projectId || undefined,
       kind,
       noteType: input.noteType,
+      sourceDocId: input.sourceDocId || undefined,
       recordingType: input.recordingType,
       durationSecs: input.durationSecs,
       summary: input.summary,
@@ -563,7 +566,8 @@ export async function createDocument(
     return { id };
   }
   const { client } = await requireClient();
-  const { error } = await client.from("documents").insert({
+  // `source_doc_id` may not exist on older DBs — retry without it.
+  const baseRow = {
     id,
     title,
     space_id: input.spaceId,
@@ -574,7 +578,13 @@ export async function createDocument(
     recording_type: input.recordingType ?? null,
     duration_secs: input.durationSecs ?? null,
     summary: input.summary ?? null,
-  });
+  };
+  let { error } = input.sourceDocId
+    ? await client.from("documents").insert({ ...baseRow, source_doc_id: input.sourceDocId })
+    : await client.from("documents").insert(baseRow);
+  if (error && /source_doc_id/i.test(error.message)) {
+    ({ error } = await client.from("documents").insert(baseRow));
+  }
   if (error) return { error: error.message };
   if (kind !== "file") {
     const rows = [
@@ -639,6 +649,63 @@ export async function createDocument(
   revalidatePath("/spaces");
   revalidatePath("/search");
   return { id };
+}
+
+export type PreparedNoteSections = {
+  summary: string;
+  keyPoints: string[];
+  actions: string[];
+  decisions: string[];
+  questions: string[];
+};
+
+/**
+ * Save an editable prepared note linked back to the recording it came from.
+ * Sections arrive as plain text (one item per line for lists).
+ */
+export async function createPreparedNote(input: {
+  sourceDocId: string;
+  sourceTitle: string;
+  title: string;
+  spaceId: string;
+  projectId?: string;
+  sections: PreparedNoteSections;
+}): Promise<{ id?: string; error?: string }> {
+  const lines = (s: string) =>
+    s
+      .split(/\n+/)
+      .map((l) => l.trim().replace(/^[•\-*]\s+/, ""))
+      .filter(Boolean)
+      .slice(0, 30);
+  const blocks: { type: DocumentBlockType; text: string }[] = [
+    { type: "quote", text: `Prepared from “${input.sourceTitle}” — edit freely.` },
+  ];
+  if (input.sections.summary.trim()) {
+    blocks.push({ type: "subheading", text: "Summary" });
+    blocks.push({ type: "paragraph", text: input.sections.summary.trim().slice(0, 2000) });
+  }
+  const pushList = (heading: string, items: string[]) => {
+    if (items.length === 0) return;
+    blocks.push({ type: "subheading", text: heading });
+    for (const item of items) blocks.push({ type: "bulleted", text: item });
+  };
+  pushList("Key points", lines(input.sections.keyPoints.join("\n")));
+  pushList("Action items", lines(input.sections.actions.join("\n")));
+  pushList("Decisions", lines(input.sections.decisions.join("\n")));
+  pushList("Open questions", lines(input.sections.questions.join("\n")));
+  const result = await createDocument({
+    title: input.title.trim() || `${input.sourceTitle} — Notes`,
+    spaceId: input.spaceId,
+    projectId: input.projectId,
+    kind: "note",
+    noteType: "meeting",
+    blocks,
+    sourceDocId: input.sourceDocId,
+  });
+  if (result.id) {
+    revalidatePath(`/docs/${input.sourceDocId}`);
+  }
+  return result;
 }
 
 export type CreateDocumentAttachmentInput = {
