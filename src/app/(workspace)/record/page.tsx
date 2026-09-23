@@ -5,16 +5,19 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { RecordStudio } from "@/components/record/record-studio";
 import {
+  getDocMedia,
   getDocumentAttachmentsForDocument,
   getDocuments,
   getSpaces,
 } from "@/lib/repository";
+import { isRecordingDoc } from "@/lib/doc-type";
 import { formatDuration, recordingTypeLabel } from "@/lib/note-types";
 
 export default async function RecordPage() {
-  const [spaces, documents] = await Promise.all([getSpaces(), getDocuments()]);
+  const [spaces, documents, media] = await Promise.all([getSpaces(), getDocuments(), getDocMedia()]);
+  const mimesOf = (id: string) => (media.get(id) ?? []).map((m) => m.mime);
   const recordings = documents
-    .filter((d) => d.kind === "file")
+    .filter((d) => isRecordingDoc(d, mimesOf(d.id)))
     .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))
     .slice(0, 6);
 

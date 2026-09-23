@@ -5,6 +5,8 @@ import {
   getDocuments,
   getSpaces,
 } from "@/lib/repository";
+import { formatRelativeTime } from "@/lib/dates";
+import { getDueTodayTasks, getOverdueTasks } from "@/lib/due";
 
 function formatGreeting() {
   const h = new Date().getHours();
@@ -113,10 +115,8 @@ export default async function HomePage() {
 
   const spaceName = new Map(spaces.map((s) => [s.id, s.name]));
 
-  const todayTasks = tasks
-    .filter((t) => t.status !== "done")
-    .slice(0, 5)
-    .map((task) => ({
+  function taskItem(task: (typeof tasks)[number]) {
+    return {
       id: task.id,
       title: task.title,
       meta: [
@@ -127,12 +127,16 @@ export default async function HomePage() {
         .filter(Boolean)
         .join(" "),
       href: `/tasks/${task.id}`,
-    }));
+    };
+  }
+
+  const overdueTasks = getOverdueTasks(tasks).slice(0, 5).map(taskItem);
+  const dueTodayTasks = getDueTodayTasks(tasks).slice(0, 5).map(taskItem);
 
   const recentActivity = activity.slice(0, 5).map((item) => ({
     id: item.id,
     title: item.text,
-    meta: item.when,
+    meta: item.createdAt ? formatRelativeTime(item.createdAt) : item.when,
     href: `/tasks/${item.taskId}`,
   }));
 
@@ -167,8 +171,13 @@ export default async function HomePage() {
       </section>
 
       <section className="mt-10">
-        <SectionHeading>Today</SectionHeading>
-        <ListCard items={todayTasks} />
+        <SectionHeading>Overdue</SectionHeading>
+        <ListCard items={overdueTasks} />
+      </section>
+
+      <section className="mt-10">
+        <SectionHeading>Due today</SectionHeading>
+        <ListCard items={dueTodayTasks} />
       </section>
 
       <section className="mt-10">

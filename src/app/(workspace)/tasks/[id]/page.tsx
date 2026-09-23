@@ -11,6 +11,7 @@ import {
   getTaskAttachmentsForTask,
   getDocument,
   getDocsForSpace,
+  getDocMedia,
 } from "@/lib/repository";
 import { getCurrentUser } from "@/app/actions/auth";
 import { TaskDetail } from "@/components/tasks/task-detail";
@@ -25,7 +26,7 @@ export default async function TaskDetailPage({
   if (!task) notFound();
 
   const user = await getCurrentUser();
-  const [project, space, list, items, comments, activity, documents, attachments, sourceDoc, spaceDocs] =
+  const [project, space, list, items, comments, activity, documents, attachments, sourceDoc, spaceDocs, media] =
     await Promise.all([
       task.projectId ? getProject(task.projectId) : Promise.resolve(undefined),
       task.spaceId ? getSpace(task.spaceId) : Promise.resolve(undefined),
@@ -37,6 +38,7 @@ export default async function TaskDetailPage({
       getTaskAttachmentsForTask(task.id),
       task.sourceDocId ? getDocument(task.sourceDocId) : Promise.resolve(undefined),
       getDocsForSpace(task.spaceId),
+      getDocMedia(),
     ]);
 
   return (
@@ -53,6 +55,9 @@ export default async function TaskDetailPage({
       currentAuthor={user?.email}
       sourceDocTitle={sourceDoc?.title}
       spaceDocs={spaceDocs.map((d) => ({ id: d.id, title: d.title }))}
+      docMedia={Object.fromEntries(
+        documents.map((d) => [d.id, (media.get(d.id) ?? []).map((m) => m.mime)])
+      )}
     />
   );
 }

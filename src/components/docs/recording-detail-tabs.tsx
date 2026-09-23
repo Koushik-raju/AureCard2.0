@@ -15,6 +15,7 @@ import { BlockEditor } from "@/components/docs/block-editor";
 import { FileDocumentView } from "@/components/docs/file-document-view";
 import { LinkedTaskChip } from "@/components/docs/linked-task-chip";
 import { Button } from "@/components/ui/button";
+import { LIBRARY_TYPE_LABEL, resolveDocType } from "@/lib/doc-type";
 import { buildNoteSections } from "@/lib/transcript";
 import { createPreparedNote } from "@/lib/mutations";
 
@@ -306,6 +307,12 @@ export function RecordingDetailTabs({
     [transcriptLines]
   );
   const mindNodes = useMemo(() => buildMindNodes(blocks), [blocks]);
+  const itemType = LIBRARY_TYPE_LABEL[
+    resolveDocType(
+      document,
+      attachments.map((a) => a.mime)
+    )
+  ];
 
   return (
     <div>
@@ -343,7 +350,7 @@ export function RecordingDetailTabs({
               />
             )}
             <p className="mt-6 text-xs text-muted-foreground">
-              Note type: {document.kind === "note" ? "Note" : isFile ? "File" : "Doc"} ·
+              Note type: {itemType} ·
               Commitments picked up at capture time appear under the Tasks tab.
             </p>
           </section>

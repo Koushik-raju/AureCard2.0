@@ -7,6 +7,12 @@ import { cn } from "@/lib/utils";
 import type { DocumentRef, Project, Space, Task, TaskItem } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  getDueSoonTasks,
+  getDueTodayTasks,
+  getOverdueTasks,
+  todayKey,
+} from "@/lib/due";
 
 type BotData = {
   spaces: Space[];
@@ -19,21 +25,6 @@ type BotData = {
 type Suggestion = { label: string; href: string };
 type ChatMessage = { role: "user" | "bot"; text: string; suggestions?: Suggestion[] };
 
-function today(): string {
-  const d = new Date();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-
-function addDays(iso: string, days: number): string {
-  const d = new Date(iso + "T00:00:00");
-  d.setDate(d.getDate() + days);
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-
 function statusCounts(tasks: Task[]) {
   const counts: Record<string, number> = { todo: 0, "in-progress": 0, "in-review": 0, done: 0 };
   for (const t of tasks) counts[t.status] = (counts[t.status] ?? 0) + 1;
@@ -41,7 +32,7 @@ function statusCounts(tasks: Task[]) {
 }
 
 function taskLines(tasks: Task[]): Suggestion[] {
-  return tasks.slice(0, 8).map((t) => ({
+  return tasks.map((t) => ({
     label: t.title,
     href: `/tasks/${t.id}`,
   }));
@@ -56,7 +47,7 @@ function matchTitle(items: Task[], query: string): Task[] {
 function respond(input: string, data: BotData): ChatMessage {
   const q = input.trim().toLowerCase();
   const { tasks, projects, spaces, docs } = data;
-  const todayIso = today();
+  const todayIso = todayKey();
   const counts = statusCounts(tasks);
   const active = tasks.filter((t) => t.status !== "done");
 
@@ -84,7 +75,7 @@ function respond(input: string, data: BotData): ChatMessage {
   }
 
   if (/\boverdue\b|fell behind|missed/.test(q)) {
-    const overdue = active.filter((t) => t.dueDate && t.dueDate < todayIso);
+    const overdue = getOverdueTasks(active, todayIso);
     if (overdue.length === 0) {
       return { role: "bot", text: "Nothing is overdue right now." };
     }
@@ -96,9 +87,11 @@ function respond(input: string, data: BotData): ChatMessage {
   }
 
   if (/due (today|tomorrow)|today|tomorrow/.test(q)) {
-    const candidates = active.filter(
-      (t) => t.dueDate && (t.dueDate === todayIso || t.dueDate === addDays(todayIso, 1))
+    const todayTasks = getDueTodayTasks(active, todayIso);
+    const tomorrowTasks = getDueSoonTasks(active, 1, todayIso).filter(
+      (t) => t.dueDate !== todayIso
     );
+    const candidates = [...todayTasks, ...tomorrowTasks];
     if (candidates.length === 0) {
       return { role: "bot", text: "No tasks are due today or tomorrow." };
     }
@@ -110,8 +103,7 @@ function respond(input: string, data: BotData): ChatMessage {
   }
 
   if (/due (this week|soon)|this week|upcoming/.test(q)) {
-    const horizon = addDays(todayIso, 7);
-    const upcoming = active.filter((t) => t.dueDate && t.dueDate >= todayIso && t.dueDate <= horizon);
+    const upcoming = getDueSoonTasks(active, 7, todayIso);
     if (upcoming.length === 0) {
       return { role: "bot", text: "Nothing due in the next 7 days." };
     }
@@ -196,7 +188,7 @@ function respond(input: string, data: BotData): ChatMessage {
     return {
       role: "bot",
       text: `Found ${fuzzyTasks.length} matching task${fuzzyTasks.length === 1 ? "" : "s"}:`,
-      suggestions: taskLines(fuzzyTasks),
+      suggestions: taskLines(fuzzyTasks.slice(0, 8)),
     };
   }
   const fuzzyProjects = projects.filter((p) => p.name.toLowerCase().includes(q.trim()));

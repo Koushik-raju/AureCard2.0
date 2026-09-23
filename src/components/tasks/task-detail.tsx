@@ -19,6 +19,7 @@ import type {
   TaskStatus,
 } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
+import { LIBRARY_TYPE_LABEL, resolveDocType } from "@/lib/doc-type";
 import { assigneesEqual, formatAssignees, getTaskAssignees, parseAssignees } from "@/lib/assignees";
 import { AssigneeStack } from "@/components/tasks/hues";
 import { PREF_KEYS, readJson } from "@/lib/prefs";
@@ -59,6 +60,8 @@ type TaskDetailProps = {
   currentAuthor?: string;
   sourceDocTitle?: string;
   spaceDocs?: { id: string; title: string }[];
+  /** Attachment mimes per document id, for proper Recording/Image/File labels. */
+  docMedia?: Record<string, string[]>;
 };
 
 function Field({
@@ -169,6 +172,7 @@ export function TaskDetail({
   currentAuthor,
   sourceDocTitle,
   spaceDocs = [],
+  docMedia = {},
 }: TaskDetailProps) {
   const router = useRouter();
   const [status, setStatus] = useState<TaskStatus>(task.status);
@@ -220,13 +224,33 @@ export function TaskDetail({
 
   const toggleItem = (id: string) =>
     setItemStates((prev) => {
-      const next = !prev[id];
+      const next = !(prev[id] ?? items.find((i) => i.id === id)?.done ?? false);
+      // Mirror the server cascade so parent/children stay consistent instantly.
+      const changed: Record<string, boolean> = { [id]: next };
+      if (next) {
+        const stack = items.filter((i) => i.parentId === id).map((i) => i.id);
+        while (stack.length > 0) {
+          const child = stack.pop()!;
+          changed[child] = true;
+          for (const i of items) if (i.parentId === child) stack.push(i.id);
+        }
+      } else {
+        let parent = items.find((i) => i.id === id)?.parentId;
+        while (parent) {
+          changed[parent] = false;
+          parent = items.find((i) => i.id === parent)?.parentId;
+        }
+      }
       startTransition(() =>
         updateTaskItemDone(task.id, id, next).catch(() => {
-          setItemStates((p) => ({ ...p, [id]: !next }));
+          setItemStates((p) => {
+            const rollback = { ...p };
+            for (const key of Object.keys(changed)) delete rollback[key];
+            return rollback;
+          });
         })
       );
-      return { ...prev, [id]: next };
+      return { ...prev, ...changed };
     });
 
   function startEditing() {
@@ -588,7 +612,7 @@ export function TaskDetail({
                     {doc.title}
                   </span>
                   <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
-                    {doc.kind === "note" ? "Note" : "Doc"}
+                    {LIBRARY_TYPE_LABEL[resolveDocType(doc, docMedia[doc.id] ?? [])]}
                   </span>
                 </Link>
               </li>

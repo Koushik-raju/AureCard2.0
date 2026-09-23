@@ -6,6 +6,11 @@ import type {
   TaskComment,
   TaskStatus,
 } from "@/lib/types";
+import {
+  getDueSoonTasks,
+  getOverdueTasks,
+  todayKey,
+} from "@/lib/due";
 
 export type InsightsInput = {
   tasks: Task[];
@@ -13,6 +18,8 @@ export type InsightsInput = {
   activity: TaskActivity[];
   comments: TaskComment[];
   spaces: Space[];
+  /** Attachment mimes per document id, for telling audio apart from images. */
+  mediaMimes?: Record<string, string[]>;
   /** Override "today" (ISO date or timestamp) for deterministic tests. */
   now?: string | number | Date;
 };
@@ -47,23 +54,6 @@ export type Insights = {
   spaceNames: Map<string, string>;
 };
 
-function toDay(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function isOverdue(task: Task, today: string): boolean {
-  return task.status !== "done" && !!task.dueDate && task.dueDate < today;
-}
-
-function isDueSoon(task: Task, today: string, horizon: string): boolean {
-  return (
-    task.status !== "done" &&
-    !!task.dueDate &&
-    task.dueDate >= today &&
-    task.dueDate <= horizon
-  );
-}
-
 /** Sort key for "open longest": earliest known start, then due date. */
 export function openSortKey(task: Task): string {
   return task.startDate ?? task.dueDate ?? "9999-12-31";
@@ -77,10 +67,7 @@ function parseWhen(value: string | undefined, fallback: number): number {
 
 export function computeInsights(input: InsightsInput): Insights {
   const now = input.now ? new Date(input.now) : new Date();
-  const today = toDay(now);
-  const horizonDate = new Date(now);
-  horizonDate.setDate(horizonDate.getDate() + 7);
-  const horizon = toDay(horizonDate);
+  const today = todayKey(now);
 
   const counts: StatusCounts = {
     total: input.tasks.length,
@@ -100,13 +87,9 @@ export function computeInsights(input: InsightsInput): Insights {
   counts.donePct =
     counts.total === 0 ? 0 : Math.round((counts.done / counts.total) * 100);
 
-  const overdue = input.tasks
-    .filter((t) => isOverdue(t, today))
-    .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? ""));
+  const overdue = getOverdueTasks(input.tasks, today);
 
-  const dueSoon = input.tasks
-    .filter((t) => isDueSoon(t, today, horizon))
-    .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? ""));
+  const dueSoon = getDueSoonTasks(input.tasks, 7, today);
 
   const longestOpen = input.tasks
     .filter((t) => t.status !== "done")
@@ -126,8 +109,13 @@ export function computeInsights(input: InsightsInput): Insights {
     .sort((a, b) => b.count - a.count || a.topic.localeCompare(b.topic))
     .slice(0, 8);
 
+  const isAudioDoc = (d: DocumentRef): boolean =>
+    d.kind === "file" &&
+    (d.recordingType !== undefined ||
+      (input.mediaMimes?.[d.id] ?? []).some((m) => m.startsWith("audio/")));
+
   const recentRecordings = input.documents
-    .filter((d) => d.kind === "file")
+    .filter(isAudioDoc)
     .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))
     .slice(0, 5);
 
@@ -160,7 +148,7 @@ export function computeInsights(input: InsightsInput): Insights {
   const weeklyActivity: DayBucket[] = buckets;
 
   const totalAudioSecs = input.documents
-    .filter((d) => d.kind === "file")
+    .filter(isAudioDoc)
     .reduce((sum, d) => sum + (d.durationSecs ?? 0), 0);
 
   return {

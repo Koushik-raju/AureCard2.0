@@ -1,6 +1,7 @@
 import {
   getDocuments,
   getDocumentBlocks,
+  getDocMedia,
   getFolders,
   getLists,
   getProjects,
@@ -8,6 +9,7 @@ import {
   getComments,
   getTasks,
 } from "@/lib/repository";
+import { LIBRARY_TYPE_LABEL, resolveDocType } from "@/lib/doc-type";
 import { getStatusLabel } from "@/lib/data";
 import {
   SearchExplorer,
@@ -15,7 +17,7 @@ import {
 } from "@/components/search/search-explorer";
 
 export default async function SearchPage() {
-  const [spaces, projects, lists, folders, tasks, documents, blocks, comments] =
+  const [spaces, projects, lists, folders, tasks, documents, blocks, comments, media] =
     await Promise.all([
       getSpaces(),
       getProjects(),
@@ -25,7 +27,9 @@ export default async function SearchPage() {
       getDocuments(),
       getDocumentBlocks(),
       getComments(),
+      getDocMedia(),
     ]);
+  const mediaMimes = (id: string) => (media.get(id) ?? []).map((m) => m.mime);
 
   const spaceName = new Map(spaces.map((s) => [s.id, s.name]));
   const spaceAccent = new Map(spaces.map((s) => [s.id, s.accent]));
@@ -74,17 +78,19 @@ export default async function SearchPage() {
       const linkedTasks = (d.taskIds ?? [])
         .map((id) => taskTitle.get(id))
         .filter((n): n is string => Boolean(n));
+      const typeLabel = LIBRARY_TYPE_LABEL[resolveDocType(d, mediaMimes(d.id))];
       return {
         id: d.id,
         category: (d.kind === "note" ? "note" : "document") as SearchEntry["category"],
         title: d.title,
-        subtitle: [d.kind === "note" ? "Note" : "Doc", spaceName.get(d.spaceId), d.projectId ? projectName.get(d.projectId) : undefined]
+        subtitle: [typeLabel, spaceName.get(d.spaceId), d.projectId ? projectName.get(d.projectId) : undefined]
           .filter(Boolean)
           .join(" · "),
         href: `/docs/${d.id}`,
         accent: spaceAccent.get(d.spaceId),
         match: [
           d.title,
+          typeLabel,
           spaceName.get(d.spaceId),
           d.projectId ? projectName.get(d.projectId) : undefined,
           docBlocks.get(d.id),

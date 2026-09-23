@@ -347,6 +347,20 @@ export async function getDocumentAttachmentsForDocument(
   return all.filter((a) => a.documentId === documentId);
 }
 
+export type DocMedia = { mime: string; name: string; size: number };
+
+/** Lightweight attachment index (no file bytes) for library item typing. */
+export async function getDocMedia(): Promise<Map<string, DocMedia[]>> {
+  const all = await getDocumentAttachments();
+  const map = new Map<string, DocMedia[]>();
+  for (const a of all) {
+    const list = map.get(a.documentId) ?? [];
+    list.push({ mime: a.mime ?? "", name: a.name ?? "", size: a.size ?? 0 });
+    map.set(a.documentId, list);
+  }
+  return map;
+}
+
 export async function getCommentsForTask(taskId: string): Promise<TaskComment[]> {
   const all = await getComments();
   return all.filter((c) => c.taskId === taskId);

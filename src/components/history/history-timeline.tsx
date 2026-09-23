@@ -5,21 +5,30 @@ import Link from "next/link";
 import { Search } from "lucide-react";
 import type { Project, Space, Task, TaskActivity } from "@/lib/types";
 import { Input } from "@/components/ui/input";
+import { formatRelativeTime } from "@/lib/dates";
+import { localDayKey } from "@/lib/due";
 
-function ymd(iso: string): string {
-  const d = new Date(iso);
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
+function dayKeyOf(iso: string | undefined): string {
+  if (!iso) return "earlier";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "earlier";
+  return localDayKey(new Date(t));
 }
 
-function dayLabel(iso: string): string {
-  const d = new Date(iso);
-  const today = new Date();
-  const y = new Date(today);
-  y.setDate(today.getDate() - 1);
-  if (ymd(iso) === ymd(today.toISOString())) return "Today";
-  if (ymd(iso) === ymd(y.toISOString())) return "Yesterday";
+/** Sort key: real timestamp first, missing timestamps sink. */
+function tsOf(a: TaskActivity): number {
+  if (!a.createdAt) return Number.NEGATIVE_INFINITY;
+  const t = Date.parse(a.createdAt);
+  return Number.isNaN(t) ? Number.NEGATIVE_INFINITY : t;
+}
+
+function dayLabel(dayKey: string, todayKey: string, yesterdayKey: string): string {
+  if (dayKey === todayKey) return "Today";
+  if (dayKey === yesterdayKey) return "Yesterday";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayKey);
+  const d = m
+    ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+    : new Date(`${dayKey}T00:00:00`);
   return d.toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -60,11 +69,20 @@ export function HistoryTimeline({
     });
   }, [activity, taskById, spaceId, projectId, query]);
 
+  const now = useMemo(() => new Date(), []);
+  const todayKey = localDayKey(now);
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const yesterdayKey = localDayKey(yesterday);
+
   const groups = useMemo(() => {
     const map = new Map<string, TaskActivity[]>();
     for (const a of filtered) {
-      const key = a.createdAt ? ymd(a.createdAt) : "earlier";
+      const key = dayKeyOf(a.createdAt);
       (map.get(key) ?? map.set(key, []).get(key)!).push(a);
+    }
+    for (const items of map.values()) {
+      items.sort((a, b) => tsOf(b) - tsOf(a));
     }
     return [...map.entries()].sort((a, b) => (a[0] === "earlier" ? 1 : b[0] === "earlier" ? -1 : b[0].localeCompare(a[0])));
   }, [filtered]);
@@ -122,7 +140,7 @@ export function HistoryTimeline({
           {groups.map(([day, items]) => (
             <section key={day}>
               <h2 className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                {day === "earlier" ? "Earlier" : dayLabel(day)}
+                {day === "earlier" ? "Earlier" : dayLabel(day, todayKey, yesterdayKey)}
                 <span className="ml-2 text-muted-foreground/60">{items.length}</span>
               </h2>
               <ul className="mt-3 divide-y divide-border border-y border-border">
@@ -142,7 +160,7 @@ export function HistoryTimeline({
                         ) : null}
                       </div>
                       <span className="shrink-0 text-xs text-muted-foreground/70">
-                        {a.when}
+                        {a.createdAt ? formatRelativeTime(a.createdAt, now) : a.when}
                       </span>
                     </li>
                   );

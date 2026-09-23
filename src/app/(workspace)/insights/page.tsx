@@ -6,6 +6,7 @@ import { formatDuration } from "@/lib/note-types";
 import {
   getActivity,
   getComments,
+  getDocMedia,
   getDocuments,
   getSpaces,
   getTasks,
@@ -53,14 +54,18 @@ function TaskRow({
 }
 
 export default async function InsightsPage() {
-  const [tasks, documents, activity, comments, spaces] = await Promise.all([
+  const [tasks, documents, activity, comments, spaces, media] = await Promise.all([
     getTasks(),
     getDocuments(),
     getActivity(),
     getComments(),
     getSpaces(),
+    getDocMedia(),
   ]);
-  const data = computeInsights({ tasks, documents, activity, comments, spaces });
+  const mediaMimes: Record<string, string[]> = Object.fromEntries(
+    [...media.entries()].map(([id, list]) => [id, list.map((m) => m.mime)])
+  );
+  const data = computeInsights({ tasks, documents, activity, comments, spaces, mediaMimes });
   const spaceName = (id: string) => data.spaceNames.get(id) ?? "";
   const maxDay = Math.max(1, ...data.weeklyActivity.map((b) => b.count));
   const audioLabel = formatDuration(data.totalAudioSecs) ?? "00:00";
@@ -69,7 +74,7 @@ export default async function InsightsPage() {
     { label: "Done", value: `${data.counts.donePct}%`, sub: `${data.counts.done} of ${data.counts.total} tasks` },
     { label: "Open", value: String(data.counts.total - data.counts.done), sub: `${data.counts.todo} to do · ${data.counts.inProgress} in progress · ${data.counts.inReview} in review` },
     { label: "Overdue", value: String(data.overdue.length), sub: data.overdue.length ? "Needs attention" : "All clear" },
-    { label: "Audio captured", value: audioLabel, sub: `${data.recentRecordings.length || documents.filter((d) => d.kind === "file").length} recordings · ${data.totalComments} comments` },
+    { label: "Audio captured", value: audioLabel, sub: `${data.recentRecordings.length} recordings · ${data.totalComments} comments` },
   ];
 
   return (
@@ -110,7 +115,17 @@ export default async function InsightsPage() {
 
       <div className="mt-8 grid items-start gap-6 lg:grid-cols-2">
         <section aria-label="Overdue">
-          <SectionHeading>Overdue ({data.overdue.length})</SectionHeading>
+          <div className="flex items-baseline justify-between gap-4">
+            <SectionHeading>Overdue ({data.overdue.length})</SectionHeading>
+            {data.overdue.length > 6 ? (
+              <Link
+                href="/tasks"
+                className="shrink-0 text-xs font-medium text-primary hover:underline"
+              >
+                See all · {data.overdue.length}
+              </Link>
+            ) : null}
+          </div>
           {data.overdue.length === 0 ? (
             <p className="mt-3 text-sm text-muted-foreground">Nothing overdue.</p>
           ) : (

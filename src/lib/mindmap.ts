@@ -1,6 +1,16 @@
 import type { DocumentRef, Project, Space, Task } from "@/lib/types";
+import { resolveDocType } from "@/lib/doc-type";
 
-export type MindNodeKind = "space" | "project" | "doc" | "topic";
+export type MindNodeKind = "space" | "project" | "doc" | "topic" | "recording" | "image" | "file" | "note";
+
+/** Node kinds that represent a library document (styled like docs). */
+export const DOC_NODE_KINDS: ReadonlySet<MindNodeKind> = new Set([
+  "doc",
+  "recording",
+  "image",
+  "file",
+  "note",
+]);
 
 export type MindNode = {
   id: string;
@@ -44,6 +54,8 @@ export function buildMindGraph(input: {
   projects: Project[];
   documents: DocumentRef[];
   tasks: Task[];
+  /** Attachment mimes per document id, for telling recordings from images. */
+  mediaMimes?: Record<string, string[]>;
 }): MindGraph {
   const { spaces, projects, documents, tasks } = input;
   const nodes: MindNode[] = [];
@@ -90,10 +102,14 @@ export function buildMindGraph(input: {
     list.push(doc);
     docsBySpace.set(doc.spaceId, list);
     const shared = docShared(doc);
+    const kind: MindNodeKind =
+      doc.kind === "file"
+        ? resolveDocType(doc, input.mediaMimes?.[doc.id] ?? [])
+        : "note";
     nodes.push({
       id: `doc:${doc.id}`,
       label: doc.title,
-      kind: "doc",
+      kind,
       depth: 2,
       shared,
       href: `/docs/${doc.id}`,

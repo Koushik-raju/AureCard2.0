@@ -20,6 +20,7 @@ import type {
 } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
 import { parseAssignees } from "@/lib/assignees";
+import { cascadeDone } from "@/lib/subtask-tree";
 import * as memory from "@/lib/data";
 
 /**
@@ -74,30 +75,85 @@ function formatWhen(date: Date): string {
 }
 
 /**
+ * Merge key for repeated edits: "updated the assignees to A, B" and
+ * "updated the assignees to C" describe the same field, so only the
+ * field part ("updated the assignees") is compared.
+ */
+function mergeBase(text: string): string {
+  const i = text.indexOf(" to ");
+  return (i === -1 ? text : text.slice(0, i)).trim().toLowerCase();
+}
+
+const MERGE_WINDOW_MS = 10 * 60_000;
+
+/**
  * Best-effort history record. Never throws: a failed history write must not
- * break the mutation it accompanies.
+ * break the mutation it accompanies. Repeated edits of the same field on the
+ * same task by the same user within 10 minutes update the existing event
+ * instead of inserting a new one.
  */
 async function logActivity(taskId: string, text: string, actor?: string) {
   const author = actor ?? (await getCurrentUser())?.email ?? "You";
+  const now = new Date();
+  const base = mergeBase(text);
   if (!isDbConfigured) {
+    const existing = memory.taskActivity.find(
+      (a) =>
+        a.taskId === taskId &&
+        a.author === author &&
+        mergeBase(a.text) === base &&
+        now.getTime() - Date.parse(a.createdAt ?? "") < MERGE_WINDOW_MS
+    );
+    if (existing) {
+      existing.text = text;
+      existing.when = formatWhen(now);
+      existing.createdAt = now.toISOString();
+      // Keep newest-first order.
+      const idx = memory.taskActivity.indexOf(existing);
+      if (idx > 0) {
+        memory.taskActivity.splice(idx, 1);
+        memory.taskActivity.unshift(existing);
+      }
+      return;
+    }
     memory.taskActivity.unshift({
       id: newId("ta"),
       taskId,
       author,
       text,
-      when: formatWhen(new Date()),
-      createdAt: new Date().toISOString(),
+      when: formatWhen(now),
+      createdAt: now.toISOString(),
     });
     return;
   }
   const client = createServerSupabase();
   if (!client) return;
+  const since = new Date(now.getTime() - MERGE_WINDOW_MS).toISOString();
+  const { data: recent } = await client
+    .from("task_activity")
+    .select("id,text,created_at")
+    .eq("task_id", taskId)
+    .eq("author", author)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  const match = (recent ?? []).find(
+    (r) => mergeBase(String(r.text ?? "")) === base
+  );
+  if (match) {
+    const { error } = await client
+      .from("task_activity")
+      .update({ text, when: formatWhen(now), created_at: now.toISOString() })
+      .eq("id", match.id);
+    if (error) console.error("[atlas] logActivity:", error.message);
+    return;
+  }
   const { error } = await client.from("task_activity").insert({
     id: newId("ta"),
     task_id: taskId,
     author,
     text,
-    when: formatWhen(new Date()),
+    when: formatWhen(now),
   });
   if (error) console.error("[atlas] logActivity:", error.message);
 }
@@ -244,21 +300,42 @@ export async function updateTaskItemDone(
   taskId: string,
   itemId: string,
   done: boolean
-) {
+): Promise<void> {
   if (!isDbConfigured) {
-    const item = memory.taskItems.find((i) => i.id === itemId);
-    if (item) item.done = done;
+    const siblings = memory.taskItems.filter((i) => i.taskId === taskId);
+    const { check, uncheck } = cascadeDone(siblings, itemId, done);
+    for (const item of memory.taskItems) {
+      if (item.taskId !== taskId) continue;
+      if (check.includes(item.id)) item.done = true;
+      if (uncheck.includes(item.id)) item.done = false;
+    }
     const user = await getCurrentUser();
     await logActivity(taskId, `${done ? "checked off" : "reopened"} a subtask`, user?.email);
     revalidatePath(`/tasks/${taskId}`);
     return;
   }
   const { client, user } = await requireClient();
-  const { error } = await client
+  const { data: rows, error: fetchError } = await client
     .from("task_items")
-    .update({ done })
-    .eq("id", itemId);
-  if (error) throw new Error(error.message);
+    .select("id,parent_id")
+    .eq("task_id", taskId);
+  if (fetchError) throw new Error(fetchError.message);
+  const { check, uncheck } = cascadeDone(
+    (rows ?? []).map((r) => ({
+      id: String(r.id),
+      parentId: r.parent_id ? String(r.parent_id) : undefined,
+    })),
+    itemId,
+    done
+  );
+  if (check.length > 0) {
+    const { error } = await client.from("task_items").update({ done: true }).in("id", check);
+    if (error) throw new Error(error.message);
+  }
+  if (uncheck.length > 0) {
+    const { error } = await client.from("task_items").update({ done: false }).in("id", uncheck);
+    if (error) throw new Error(error.message);
+  }
   await logActivity(taskId, `${done ? "checked off" : "reopened"} a subtask`, user.email ?? "Someone");
   revalidatePath(`/tasks/${taskId}`);
 }

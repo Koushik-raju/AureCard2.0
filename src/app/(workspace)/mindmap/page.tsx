@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { MindmapCanvas } from "@/components/mindmap/mindmap-canvas";
 import { buildMindGraph } from "@/lib/mindmap";
 import {
+  getDocMedia,
   getDocuments,
   getProjects,
   getSpaces,
@@ -11,13 +12,17 @@ import {
 } from "@/lib/repository";
 
 export default async function MindmapPage() {
-  const [spaces, projects, documents, tasks] = await Promise.all([
+  const [spaces, projects, documents, tasks, media] = await Promise.all([
     getSpaces(),
     getProjects(),
     getDocuments(),
     getTasks(),
+    getDocMedia(),
   ]);
-  const graph = buildMindGraph({ spaces, projects, documents, tasks });
+  const mediaMimes: Record<string, string[]> = Object.fromEntries(
+    [...media.entries()].map(([id, list]) => [id, list.map((m) => m.mime)])
+  );
+  const graph = buildMindGraph({ spaces, projects, documents, tasks, mediaMimes });
   const sharedCount = graph.nodes.filter((n) => n.kind === "topic").length;
 
   return (

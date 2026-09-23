@@ -1,18 +1,19 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileText, Lightbulb, ListMusic, Search, StickyNote } from "lucide-react";
+import { File as FileIcon, FileText, Film, Image as ImageIcon, Lightbulb, ListMusic, Search, StickyNote } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DocumentRef, NoteType, RecordingType, Space } from "@/lib/types";
 import { NOTE_TYPE_OPTIONS, RECORDING_TYPES, formatDuration } from "@/lib/note-types";
+import { LIBRARY_TYPE_LABEL, resolveDocType, type LibraryItemType } from "@/lib/doc-type";
 import { createDocument } from "@/lib/mutations";
 import { DocumentMenu } from "@/components/create/entity-menus";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
-type LibraryView = "recordings" | "notes";
+type LibraryView = "recordings" | "notes" | "files";
 type TypeFilter = "all" | RecordingType;
 
 export type LibraryOpenTask = {
@@ -26,6 +27,8 @@ type DocsExplorerProps = {
   documents: DocumentRef[];
   spaces: Space[];
   openTasks: LibraryOpenTask[];
+  /** Attachment metadata per document (no file bytes) for item typing. */
+  mediaByDoc: Record<string, { mime: string; name: string; size: number }[]>;
 };
 
 const TYPE_TABS: { key: TypeFilter; label: string }[] = [
@@ -51,8 +54,11 @@ function groupOf(createdAt: string | undefined): (typeof GROUP_ORDER)[number] {
   return "Earlier";
 }
 
-function isRecording(d: DocumentRef): boolean {
-  return d.kind === "file" || d.recordingType !== undefined;
+function mimesOf(
+  mediaByDoc: Record<string, { mime: string; name: string; size: number }[]>,
+  id: string
+): string[] {
+  return (mediaByDoc[id] ?? []).map((m) => m.mime);
 }
 
 /** Decorative waveform bars, deterministic per recording. */
@@ -181,6 +187,39 @@ function RecordingCard({ doc }: { doc: DocumentRef }) {
   );
 }
 
+function FileCard({
+  doc,
+  media,
+}: {
+  doc: DocumentRef;
+  media: { mime: string; name: string; size: number }[];
+}) {
+  const type = resolveDocType(doc, media.map((m) => m.mime));
+  const first = media[0];
+  const Icon = type === "image" ? ImageIcon : media.some((m) => m.mime.startsWith("video/")) ? Film : FileIcon;
+  return (
+    <li>
+      <Link
+        href={`/docs/${doc.id}`}
+        className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3.5 transition-colors hover:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          <Icon className="size-4" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-serif text-[17px] leading-snug">
+            {doc.title}
+          </span>
+          <span className="block truncate text-[13px] text-muted-foreground">
+            {LIBRARY_TYPE_LABEL[type]}
+            {first?.name ? ` · ${first.name}` : ""}
+          </span>
+        </span>
+      </Link>
+    </li>
+  );
+}
+
 function NoteComposer({ spaces }: { spaces: Space[] }) {
   const router = useRouter();
   const [text, setText] = useState("");
@@ -294,17 +333,22 @@ function NoteComposer({ spaces }: { spaces: Space[] }) {
   );
 }
 
-export function DocsExplorer({ documents, spaces, openTasks }: DocsExplorerProps) {
+export function DocsExplorer({ documents, spaces, openTasks, mediaByDoc }: DocsExplorerProps) {
   const [view, setView] = useState<LibraryView>("recordings");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [query, setQuery] = useState("");
 
   const docById = useMemo(() => new Map(documents.map((d) => [d.id, d])), [documents]);
 
+  const typeOf = useCallback(
+    (d: DocumentRef): LibraryItemType => resolveDocType(d, mimesOf(mediaByDoc, d.id)),
+    [mediaByDoc]
+  );
+
   const recordings = useMemo(() => {
     const q = query.trim().toLowerCase();
     return documents.filter((d) => {
-      if (!isRecording(d)) return false;
+      if (typeOf(d) !== "recording") return false;
       if (typeFilter !== "all" && d.recordingType !== typeFilter) return false;
       if (
         q &&
@@ -314,12 +358,22 @@ export function DocsExplorer({ documents, spaces, openTasks }: DocsExplorerProps
         return false;
       return true;
     });
-  }, [documents, typeFilter, query]);
+  }, [documents, typeFilter, query, typeOf]);
+
+  const files = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return documents.filter((d) => {
+      const t = typeOf(d);
+      if (t !== "image" && t !== "file") return false;
+      if (q && !d.title.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [documents, query, typeOf]);
 
   const notes = useMemo(() => {
     const q = query.trim().toLowerCase();
     return documents.filter((d) => {
-      if (isRecording(d)) return false;
+      if (d.kind === "file") return false;
       if (q && !d.title.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -339,12 +393,13 @@ export function DocsExplorer({ documents, spaces, openTasks }: DocsExplorerProps
         <div
           role="tablist"
           aria-label="Library view"
-          className="grid flex-1 grid-cols-2 gap-1 rounded-full border border-border bg-card p-1"
+          className="grid flex-1 grid-cols-3 gap-1 rounded-full border border-border bg-card p-1"
         >
           {(
             [
               { key: "recordings", label: "Recordings" },
               { key: "notes", label: "Notes" },
+              { key: "files", label: "Files" },
             ] as const
           ).map((tab) => (
             <button
@@ -432,6 +487,31 @@ export function DocsExplorer({ documents, spaces, openTasks }: DocsExplorerProps
                   Aure sorts notes by what they sound like. Try another filter.
                 </p>
               ) : null}
+            </div>
+          ) : null}
+        </>
+      ) : view === "files" ? (
+        <>
+          {GROUP_ORDER.map((group) => {
+            const inGroup = files.filter((d) => groupOf(d.createdAt) === group);
+            if (inGroup.length === 0) return null;
+            return (
+              <section key={group} aria-label={group} className="mt-8">
+                <SectionLabel>{group}</SectionLabel>
+                <ul className="mt-3 space-y-3">
+                  {inGroup.map((doc) => (
+                    <FileCard key={doc.id} doc={doc} media={mediaByDoc[doc.id] ?? []} />
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+          {files.length === 0 ? (
+            <div className="py-16 text-center">
+              <p className="font-serif text-2xl tracking-tight">No files yet.</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Images, videos and PDFs land here — recordings stay under Recordings.
+              </p>
             </div>
           ) : null}
         </>

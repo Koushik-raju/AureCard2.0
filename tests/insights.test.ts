@@ -122,7 +122,7 @@ describe("computeInsights", () => {
       mk("2026-09-01T09:00:00", "old"),
     ];
     const documents: DocumentRef[] = [
-      { id: "r1", title: "R1", spaceId: "s1", kind: "file", durationSecs: 42, createdAt: "2026-09-21T08:00:00" },
+      { id: "r1", title: "R1", spaceId: "s1", kind: "file", recordingType: "thought", durationSecs: 42, createdAt: "2026-09-21T08:00:00" },
       { id: "d1", title: "D1", spaceId: "s1", kind: "doc" },
     ];
     const out = computeInsights({

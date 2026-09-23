@@ -1,12 +1,15 @@
 import { ContentWrap } from "@/components/layout/content-wrap";
 import { PageHeader } from "@/components/layout/page-header";
 import { InboxFeed, type InboxItem } from "@/components/inbox/inbox-feed";
+import { getCurrentUser } from "@/app/actions/auth";
 import {
   getActivity,
   getComments,
   getSpaces,
   getTasks,
 } from "@/lib/repository";
+import { formatDueDate, formatRelativeTime } from "@/lib/dates";
+import { getDueSoonTasks, getOverdueTasks, todayKey } from "@/lib/due";
 
 function toTs(createdAt: string | undefined, when: string): number {
   const t = createdAt ? Date.parse(createdAt) : Number.NaN;
@@ -16,62 +19,70 @@ function toTs(createdAt: string | undefined, when: string): number {
 }
 
 export default async function InboxPage() {
-  const [tasks, comments, activity, spaces] = await Promise.all([
+  const [tasks, comments, activity, spaces, user] = await Promise.all([
     getTasks(),
     getComments(),
     getActivity(),
     getSpaces(),
+    getCurrentUser(),
   ]);
   const spaceName = new Map(spaces.map((s) => [s.id, s.name]));
   const taskById = new Map(tasks.map((t) => [t.id, t]));
+  const me = user?.email?.toLowerCase() ?? "";
+  const isMe = (author: string) => {
+    if (!me) return false;
+    const a = author.trim().toLowerCase();
+    return a === me || a === me.split("@")[0];
+  };
 
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  const soon = new Date(today);
-  soon.setDate(soon.getDate() + 3);
-  const soonStr = `${soon.getFullYear()}-${String(soon.getMonth() + 1).padStart(2, "0")}-${String(soon.getDate()).padStart(2, "0")}`;
+  const today = todayKey();
+  const overdueById = new Map(getOverdueTasks(tasks, today).map((t) => [t.id, t]));
+  const dueSoonById = new Map(getDueSoonTasks(tasks, 3, today).map((t) => [t.id, t]));
 
   const items: InboxItem[] = [];
 
   for (const task of tasks) {
+    if (task.status === "done") continue;
     const owners =
       task.assignees && task.assignees.length > 0
         ? task.assignees
         : task.assignee
           ? [task.assignee]
           : [];
-    if (owners.length > 0 && task.status !== "done") {
+    const dated = overdueById.get(task.id) ?? dueSoonById.get(task.id);
+    const dueLabel = dated
+      ? overdueById.has(task.id)
+        ? `Overdue since ${formatDueDate(task.dueDate)}`
+        : `Due ${formatDueDate(task.dueDate)}`
+      : null;
+    // One item per task: assignment and due date are merged, never doubled.
+    if (owners.length > 0) {
       items.push({
         id: `assign-${task.id}`,
         kind: "assignment",
         title: task.title,
-        detail: `Assigned to ${owners.join(", ")} · ${spaceName.get(task.spaceId) ?? "Workspace"}`,
+        detail: [`Assigned to ${owners.join(", ")}`, dueLabel, spaceName.get(task.spaceId) ?? "Workspace"]
+          .filter(Boolean)
+          .join(" · "),
         href: `/tasks/${task.id}`,
-        when: task.dueDate ? `Due ${task.dueDate}` : "No due date",
+        when: dueLabel ?? "No due date",
         ts: task.dueDate ? Date.parse(`${task.dueDate}T00:00:00`) : 0,
       });
-    }
-    if (
-      task.status !== "done" &&
-      task.dueDate &&
-      task.dueDate <= soonStr
-    ) {
+    } else if (dated && dueLabel) {
       items.push({
         id: `due-${task.id}`,
         kind: "due",
         title: task.title,
-        detail:
-          task.dueDate < todayStr
-            ? `Overdue since ${task.dueDate}`
-            : `Due ${task.dueDate}`,
+        detail: `${dueLabel} · ${spaceName.get(task.spaceId) ?? "Workspace"}`,
         href: `/tasks/${task.id}`,
-        when: task.dueDate,
-        ts: Date.parse(`${task.dueDate}T00:00:00`),
+        when: dueLabel ?? "",
+        ts: task.dueDate ? Date.parse(`${task.dueDate}T00:00:00`) : 0,
       });
     }
   }
 
   for (const comment of comments) {
+    if (isMe(comment.author)) continue;
     const task = taskById.get(comment.taskId);
     items.push({
       id: `comment-${comment.id}`,
@@ -79,19 +90,21 @@ export default async function InboxPage() {
       title: task ? `Re: ${task.title}` : "New comment",
       detail: `${comment.author}: ${comment.text.slice(0, 120)}`,
       href: `/tasks/${comment.taskId}`,
-      when: comment.createdAt,
+      when: formatRelativeTime(comment.createdAt),
       ts: toTs(comment.createdAt, ""),
     });
   }
 
   for (const entry of activity.slice(0, 30)) {
+    if (isMe(entry.author)) continue;
+    const task = taskById.get(entry.taskId);
     items.push({
       id: `activity-${entry.id}`,
       kind: "activity",
       title: entry.text,
-      detail: `${entry.author} · ${entry.when}`,
+      detail: task ? `${entry.author} · ${task.title}` : entry.author,
       href: `/tasks/${entry.taskId}`,
-      when: entry.when,
+      when: entry.createdAt ? formatRelativeTime(entry.createdAt) : entry.when,
       ts: toTs(entry.createdAt, entry.when),
     });
   }

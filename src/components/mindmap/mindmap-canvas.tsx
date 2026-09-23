@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Minus, Plus, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { MindGraph, MindNode } from "@/lib/mindmap";
+import { DOC_NODE_KINDS } from "@/lib/mindmap";
 import { cn } from "@/lib/utils";
 
 const NODE_W = 200;
@@ -21,7 +22,7 @@ function nodeClasses(node: MindNode): string {
 
 function labelClasses(node: MindNode): string {
   if (node.kind === "space") return "fill-primary-foreground";
-  if (node.kind === "topic" || (node.kind === "doc" && node.shared))
+  if (node.kind === "topic" || (DOC_NODE_KINDS.has(node.kind) && node.shared))
     return "fill-amber-700 dark:fill-amber-300";
   return "fill-foreground";
 }
@@ -113,7 +114,7 @@ export function MindmapCanvas({ graph }: { graph: MindGraph }) {
               const x2 = to.x;
               const y2 = to.y + NODE_H / 2;
               const mx = (x1 + x2) / 2;
-              const shared = to.kind === "topic" || (to.kind === "doc" && to.shared);
+              const shared = to.kind === "topic" || (DOC_NODE_KINDS.has(to.kind) && to.shared);
               return (
                 <path
                   key={i}
