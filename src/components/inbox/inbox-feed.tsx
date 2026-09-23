@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AtSign, CalendarClock, ListTodo, MessagesSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,15 @@ export function InboxFeed({ items }: { items: InboxItem[] }) {
   const read = useMemo(() => new Set(readIds), [readIds]);
 
   const unreadCount = items.filter((i) => !read.has(i.id)).length;
+
+  // Snapshot the current feed ids so the sidebar badge can count unread
+  // items without refetching (refreshed on every inbox visit).
+  useEffect(() => {
+    writeJson(PREF_KEYS.inboxSnapshot, {
+      ids: items.map((i) => i.id),
+      ts: Date.now(),
+    });
+  }, [items]);
 
   const visible = items.filter((item) => {
     if (filter === "unread") return !read.has(item.id);

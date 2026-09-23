@@ -20,6 +20,7 @@ import type {
 } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
 import { parseAssignees } from "@/lib/assignees";
+import { normalizeTags } from "@/lib/tags";
 import { cascadeDone } from "@/lib/subtask-tree";
 import * as memory from "@/lib/data";
 
@@ -31,22 +32,6 @@ import * as memory from "@/lib/data";
 
 function newId(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
-}
-
-/**
- * Tags are stored lowercase + trimmed + de-duplicated so "Bug" and "bug"
- * never split into separate topics. Display keeps the stored form.
- */
-export function normalizeTags(tags?: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of tags ?? []) {
-    const t = String(raw ?? "").trim().toLowerCase();
-    if (!t || seen.has(t)) continue;
-    seen.add(t);
-    out.push(t);
-  }
-  return out;
 }
 
 /** Chunk a transcript into ≤1200-char paragraph blocks for storage. */

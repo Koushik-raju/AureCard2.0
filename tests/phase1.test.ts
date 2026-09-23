@@ -8,6 +8,7 @@ import {
 import { formatDueDate, formatRelativeTime } from "@/lib/dates";
 import { resolveDocType } from "@/lib/doc-type";
 import { cascadeDone } from "@/lib/subtask-tree";
+import { normalizeTags } from "@/lib/tags";
 import type { Task } from "@/lib/types";
 
 function task(overrides: Partial<Task> & { id: string }): Task {
@@ -93,8 +94,7 @@ describe("resolveDocType", () => {
   });
 });
 
-describe("cascadeDone", () => {
-  const items = [
+describe("cascadeDone", () => {  const items = [
     { id: "p" },
     { id: "c1", parentId: "p" },
     { id: "c2", parentId: "p" },
@@ -111,5 +111,15 @@ describe("cascadeDone", () => {
     const { check, uncheck } = cascadeDone(items, "g", false);
     expect(check).toEqual([]);
     expect(new Set(uncheck)).toEqual(new Set(["g", "c1", "p"]));
+  });
+});
+
+describe("normalizeTags", () => {
+  it("lowercases, trims and dedupes", () => {
+    expect(normalizeTags(["Bug", " bug ", "Production", "", "BUG"])).toEqual([
+      "bug",
+      "production",
+    ]);
+    expect(normalizeTags(undefined)).toEqual([]);
   });
 });

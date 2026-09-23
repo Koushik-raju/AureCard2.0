@@ -12,6 +12,7 @@ export const PREF_KEYS = {
   plan: "atlas:plan",
   org: "atlas:org-chart",
   inboxRead: "atlas:inbox-read",
+  inboxSnapshot: "atlas:inbox-snapshot",
 } as const;
 
 export type VoicePrefs = {

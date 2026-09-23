@@ -57,8 +57,41 @@ const NAV_GROUPS = [
   },
 ];
 
-export function AppSidebar({ userEmail }: { userEmail: string | null }) {
-  const pathname = usePathname();
+function inboxUnreadCount(): number {
+  try {
+    const snap = readJson<{ ids: string[] }>(PREF_KEYS.inboxSnapshot, { ids: [] });
+    const ids = Array.isArray(snap.ids) ? snap.ids : [];
+    const read = new Set(readJson<{ ids: string[] }>(PREF_KEYS.inboxRead, { ids: [] }).ids ?? []);
+    return ids.filter((id) => !read.has(id)).length;
+  } catch {
+    return 0;
+  }
+}
+
+/** Unread badge for the Inbox item, from the last inbox snapshot (no refetch). */
+function InboxBadge() {
+  const [count, setCount] = useState(inboxUnreadCount);
+  useEffect(() => {
+    const update = () => setCount(inboxUnreadCount());
+    window.addEventListener("storage", update);
+    window.addEventListener("focus", update);
+    return () => {
+      window.removeEventListener("storage", update);
+      window.removeEventListener("focus", update);
+    };
+  }, []);
+  if (count <= 0) return null;
+  return (
+    <span
+      aria-label={`${count} unread`}
+      className="ml-auto flex min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-primary-foreground"
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
+export function AppSidebar({ userEmail }: { userEmail: string | null }) {  const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
   const [displayName, setDisplayName] = useState("");
   useEffect(() => {
@@ -102,6 +135,7 @@ export function AppSidebar({ userEmail }: { userEmail: string | null }) {
                       <Link href={item.href}>
                         <item.icon className="size-[18px]" />
                         <span>{item.label}</span>
+                        {item.href === "/inbox" ? <InboxBadge key={pathname} /> : null}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
