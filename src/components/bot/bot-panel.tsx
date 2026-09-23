@@ -4,9 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Bot, Sparkles, User } from "lucide-react";
 import { cn, plural } from "@/lib/utils";
-import type { DocumentRef, Project, Space, Task, TaskItem } from "@/lib/types";
+import type { DocumentBlock, DocumentRef, Project, Space, Task, TaskItem } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { answerAboutContent } from "@/lib/answer";
 import {
   getDueSoonTasks,
   getDueTodayTasks,
@@ -20,6 +21,7 @@ type BotData = {
   tasks: Task[];
   docs: DocumentRef[];
   itemsByTask: Record<string, TaskItem[]>;
+  blocks: DocumentBlock[];
 };
 
 type Suggestion = { label: string; href: string };
@@ -46,7 +48,7 @@ function matchTitle(items: Task[], query: string): Task[] {
 
 function respond(input: string, data: BotData): ChatMessage {
   const q = input.trim().toLowerCase();
-  const { tasks, projects, spaces, docs } = data;
+  const { tasks, projects, spaces, docs, blocks } = data;
   const todayIso = todayKey();
   const counts = statusCounts(tasks);
   const active = tasks.filter((t) => t.status !== "done");
@@ -65,10 +67,11 @@ function respond(input: string, data: BotData): ChatMessage {
   if (/(help|what can you do|commands|capabilit)/.test(q)) {
     return {
       role: "bot",
-      text: "I can look across your workspace and point you at the right place: try asking about overdue or due-soon tasks, high-priority work, projects, documents, or let me suggest what to focus on next.",
+      text: "I can look across your workspace and point you at the right place: try asking about overdue or due-soon tasks, high-priority work, projects, documents, what was said in a recording, or let me suggest what to focus on next.",
       suggestions: [
         { label: "Top priorities", href: "/bot" },
         { label: "Due this week", href: "/bot" },
+        { label: "What did we decide?", href: "/bot" },
         { label: "How many tasks?", href: "/bot" },
       ],
     };
@@ -112,6 +115,12 @@ function respond(input: string, data: BotData): ChatMessage {
       text: `${upcoming.length} task${upcoming.length === 1 ? "" : "s"} due in the next 7 days:`,
       suggestions: taskLines(upcoming),
     };
+  }
+
+  // Recordings + notes content (extractive, local). Null falls through.
+  const contentAnswer = answerAboutContent(blocks, docs, input);
+  if (contentAnswer) {
+    return { role: "bot", ...contentAnswer };
   }
 
   if (/(high|top|urgent) +priority|priorit|most important|what should i (do|work|focus)|\bnext\b|recommend|suggest/.test(q)) {
@@ -231,6 +240,7 @@ const QUICK_PROMPTS = [
   "Overdue tasks",
   "Due this week",
   "Top priorities",
+  "What did we decide?",
 ];
 
 export function BotPanel({ data }: { data: BotData }) {

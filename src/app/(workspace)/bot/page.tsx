@@ -5,16 +5,18 @@ import {
   getProjects,
   getTasks,
   getDocuments,
+  getDocumentBlocks,
   getTaskItems,
 } from "@/lib/repository";
 
 export default async function BotPage() {
-  const [spaces, projects, tasks, docs, taskItems] = await Promise.all([
+  const [spaces, projects, tasks, docs, taskItems, blocks] = await Promise.all([
     getSpaces(),
     getProjects(),
     getTasks(),
     getDocuments(),
     getTaskItems(),
+    getDocumentBlocks(),
   ]);
 
   const itemsByTask: Record<string, TaskItem[]> = {};
@@ -30,10 +32,10 @@ export default async function BotPage() {
         </h1>
         <p className="mt-2 max-w-prose text-[15px] text-muted-foreground">
           A lightweight in-workspace assistant. Ask about your tasks, deadlines,
-          and priorities — no setup or APIs required.
+          priorities, and what was said in recordings and notes — no setup or APIs required.
         </p>
       </header>
-      <BotPanel data={{ spaces, projects, tasks, docs, itemsByTask }} />
+      <BotPanel data={{ spaces, projects, tasks, docs, itemsByTask, blocks }} />
     </div>
   );
 }
