@@ -1,18 +1,27 @@
+import { NextResponse } from "next/server";
+import { getCurrentUser } from "@/app/actions/auth";
 import {
-  getDocuments,
-  getDocumentBlocks,
+  getComments,
   getDocMedia,
+  getDocumentBlocks,
+  getDocuments,
   getFolders,
   getLists,
   getProjects,
   getSpaces,
-  getComments,
   getTasks,
 } from "@/lib/repository";
 import { buildSearchEntries } from "@/lib/search-index";
-import { SearchExplorer } from "@/components/search/search-explorer";
 
-export default async function SearchPage() {
+/**
+ * Workspace search index for the ⌘K palette. Same builder as /search,
+ * served as JSON. Requires a signed-in user; rows come through RLS.
+ */
+export async function GET() {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+  }
   const [spaces, projects, lists, folders, tasks, documents, blocks, comments, media] =
     await Promise.all([
       getSpaces(),
@@ -39,18 +48,5 @@ export default async function SearchPage() {
     comments,
     mediaMimes,
   });
-
-  return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-10 sm:py-14">
-      <header>
-        <h1 className="font-serif text-3xl font-medium tracking-tight sm:text-4xl">
-          Search
-        </h1>
-        <p className="mt-2 max-w-prose text-[15px] text-muted-foreground">
-          Find tasks, projects, documents, notes, and comments across your workspace.
-        </p>
-      </header>
-      <SearchExplorer entries={entries} allCount={entries.length} />
-    </div>
-  );
+  return NextResponse.json({ entries });
 }

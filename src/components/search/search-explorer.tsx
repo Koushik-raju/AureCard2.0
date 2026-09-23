@@ -16,26 +16,11 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Accent, TaskStatus } from "@/lib/types";
+import type { TaskStatus } from "@/lib/types";
+import type { SearchEntry } from "@/lib/search-index";
 import { useTaskStatusOverrides } from "@/lib/session-store";
 
-export type SearchEntry = {
-  id: string;
-  category:
-    | "task"
-    | "document"
-    | "note"
-    | "project"
-    | "space"
-    | "list"
-    | "folder"
-    | "comment";
-  title: string;
-  subtitle?: string;
-  href: string;
-  accent?: Accent;
-  match: string;
-};
+export type { SearchEntry };
 
 const STATUS_ICON: Record<TaskStatus, React.ComponentType<{ className?: string }>> = {
   todo: CircleDot,

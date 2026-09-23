@@ -26,7 +26,7 @@ const GUIDES = [
     title: "Spaces, projects and tasks",
     body: [
       "Spaces are top-level contexts (Work, Personal). Projects live inside spaces, with folders and lists for finer structure.",
-      "Create anything from the + menu or the relevant page. Tasks carry status, priority, assignee, due dates, subtasks, attachments, quotes and source notes.",
+      "Create anything from the ⌘K palette (search or create from any page) or the relevant page. Tasks carry status, priority, assignee, due dates, subtasks, attachments, quotes and source notes.",
       "Checking a task block inside a document updates the linked task everywhere, and every change lands in History.",
     ],
   },

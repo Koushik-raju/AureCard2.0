@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { SearchPalette } from "@/components/search/search-palette";
 import { getCurrentUser } from "@/app/actions/auth";
 
 export default async function WorkspaceLayout({ children }: { children: React.ReactNode }) {
@@ -23,6 +24,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
             <ThemeToggle />
           </header>
           <main className="flex-1 overflow-y-auto">{children}</main>
+          <SearchPalette />
         </div>
       </SidebarInset>
     </SidebarProvider>
