@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { formatDueDate } from "@/lib/dates";
 import type { TaskPriority, TaskStatus } from "@/lib/types";
 
 export function PriorityDot({
@@ -57,8 +58,5 @@ export function StatusIndicator({
 }
 
 export function formatShortDate(date?: string): string {
-  if (!date) return "";
-  const d = new Date(date + "T00:00:00");
-  if (isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return formatDueDate(date);
 }

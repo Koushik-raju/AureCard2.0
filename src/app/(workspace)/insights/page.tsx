@@ -3,6 +3,8 @@ import { ContentWrap } from "@/components/layout/content-wrap";
 import { PageHeader } from "@/components/layout/page-header";
 import { computeInsights } from "@/lib/insights";
 import { formatDuration } from "@/lib/note-types";
+import { formatDueDate } from "@/lib/dates";
+import { plural } from "@/lib/utils";
 import {
   getActivity,
   getComments,
@@ -19,13 +21,6 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
       {children}
     </h2>
   );
-}
-
-function formatShortDate(date?: string) {
-  if (!date) return "";
-  const d = new Date(`${date}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function TaskRow({
@@ -46,7 +41,7 @@ function TaskRow({
         <span className="size-1.5 shrink-0 rounded-full bg-primary/70" />
         <span className="min-w-0 flex-1 truncate text-[15px]">{task.title}</span>
         <span className="shrink-0 text-xs text-muted-foreground">
-          {showDate && task.dueDate ? formatShortDate(task.dueDate) : spaceName(task.spaceId)}
+          {showDate && task.dueDate ? formatDueDate(task.dueDate) : spaceName(task.spaceId)}
         </span>
       </Link>
     </li>
@@ -71,10 +66,10 @@ export default async function InsightsPage() {
   const audioLabel = formatDuration(data.totalAudioSecs) ?? "00:00";
 
   const stats = [
-    { label: "Done", value: `${data.counts.donePct}%`, sub: `${data.counts.done} of ${data.counts.total} tasks` },
+    { label: "Done", value: `${data.counts.donePct}%`, sub: `${data.counts.done} of ${data.counts.total} ${plural(data.counts.total, "task")}` },
     { label: "Open", value: String(data.counts.total - data.counts.done), sub: `${data.counts.todo} to do · ${data.counts.inProgress} in progress · ${data.counts.inReview} in review` },
     { label: "Overdue", value: String(data.overdue.length), sub: data.overdue.length ? "Needs attention" : "All clear" },
-    { label: "Audio captured", value: audioLabel, sub: `${data.recentRecordings.length} recordings · ${data.totalComments} comments` },
+    { label: "Audio captured", value: audioLabel, sub: `${data.recentRecordings.length} ${plural(data.recentRecordings.length, "recording")} · ${data.totalComments} ${plural(data.totalComments, "comment")}` },
   ];
 
   return (
@@ -99,6 +94,11 @@ export default async function InsightsPage() {
 
       <section aria-label="This week" className="mt-8 rounded-xl border border-border bg-card p-5">
         <SectionHeading>This week&apos;s activity</SectionHeading>
+        {data.weeklyActivity.every((b) => b.count === 0) ? (
+          <p className="mt-3 text-sm text-muted-foreground">
+            No activity this week yet — edits, comments and recordings will show up here.
+          </p>
+        ) : (
         <div className="mt-4 flex h-24 items-end gap-2" role="img" aria-label={`${activity.length} recent activity entries`}>
           {data.weeklyActivity.map((day, i) => (
             <div key={i} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
@@ -111,6 +111,7 @@ export default async function InsightsPage() {
             </div>
           ))}
         </div>
+        )}
       </section>
 
       <div className="mt-8 grid items-start gap-6 lg:grid-cols-2">

@@ -33,7 +33,8 @@ function labelClasses(node: MindNode): string {
  */
 export function MindmapCanvas({ graph }: { graph: MindGraph }) {
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(1);
+  // Start zoomed in one step so labels are readable on load.
+  const [zoom, setZoom] = useState(1.3);
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
@@ -51,7 +52,7 @@ export function MindmapCanvas({ graph }: { graph: MindGraph }) {
 
   function reset() {
     setPan({ x: 0, y: 0 });
-    setZoom(1);
+    setZoom(1.3);
   }
 
   return (

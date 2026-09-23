@@ -10,8 +10,19 @@ function loadDisplayName(): string {
   return readJson<{ name: string }>(PREF_KEYS.displayName, { name: "" }).name ?? "";
 }
 
+/** Fallback display name from the account email ("koushik@…" → "Koushik"). */
+function nameFromEmail(email: string | null): string {
+  if (!email) return "";
+  const local = email.split("@")[0] ?? "";
+  return local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function ProfileForm({ email }: { email: string | null }) {
-  const [name, setName] = useState(loadDisplayName);
+  const [name, setName] = useState(() => loadDisplayName() || nameFromEmail(email));
   const [saved, setSaved] = useState(false);
 
   function save() {

@@ -62,22 +62,26 @@ export function buildMindGraph(input: {
   const edges: MindEdge[] = [];
 
   // Tag usage across tasks: a topic is "shared" when ≥2 tasks carry it.
-  const tagUse = new Map<string, number>();
+  // Matching is case-insensitive; the label keeps its first-seen casing.
+  const tagUse = new Map<string, { display: string; count: number }>();
   for (const task of tasks) {
     for (const raw of task.tags ?? []) {
-      const tag = raw.trim();
-      if (tag) tagUse.set(tag, (tagUse.get(tag) ?? 0) + 1);
+      const key = raw.trim().toLowerCase();
+      if (!key) continue;
+      const entry = tagUse.get(key) ?? { display: raw.trim(), count: 0 };
+      entry.count += 1;
+      tagUse.set(key, entry);
     }
   }
   const sharedTags = new Set(
-    [...tagUse.entries()].filter(([, n]) => n >= 2).map(([tag]) => tag)
+    [...tagUse.entries()].filter(([, e]) => e.count >= 2).map(([tag]) => tag)
   );
 
   const taskTags = new Map<string, Set<string>>();
   for (const task of tasks) {
     taskTags.set(
       task.id,
-      new Set((task.tags ?? []).map((t) => t.trim()).filter(Boolean))
+      new Set((task.tags ?? []).map((t) => t.trim().toLowerCase()).filter(Boolean))
     );
   }
   const docShared = (doc: DocumentRef): boolean => {
@@ -123,8 +127,9 @@ export function buildMindGraph(input: {
     }
   }
   for (const tag of sharedTags) {
+    const display = tagUse.get(tag)?.display ?? tag;
     const id = `topic:${tag}`;
-    nodes.push({ id, label: tag, kind: "topic", depth: 3, shared: true, x: 0, y: 0 });
+    nodes.push({ id, label: display, kind: "topic", depth: 3, shared: true, x: 0, y: 0 });
     for (const doc of documents) {
       const linked = tasks.filter(
         (t) => t.sourceDocId === doc.id || doc.taskIds?.includes(t.id)

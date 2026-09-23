@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { formatDueDate } from "@/lib/dates";
 import type { Task, TaskItem } from "@/lib/types";
 import { TaskCheckbox } from "./task-checkbox";
 import { SubtaskInline } from "./subtask-inline";
@@ -35,10 +36,7 @@ export function TaskRow({ task, items }: { task: Task; items?: TaskItem[] }) {
       <SubtaskInline taskId={task.id} items={items ?? []} />
       {task.dueDate ? (
         <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {new Date(task.dueDate + "T00:00:00").toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-          })}
+          {formatDueDate(task.dueDate)}
         </span>
       ) : null}
     </li>

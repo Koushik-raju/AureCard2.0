@@ -15,7 +15,7 @@ import { SpaceMenu } from "@/components/create/entity-menus";
 import { SpaceHeaderEditor } from "@/components/create/inline-editor";
 import { GroupedTaskList } from "@/components/tasks/grouped-task-list";
 import { accentStyles } from "@/lib/accents";
-import { cn } from "@/lib/utils";
+import { cn, plural } from "@/lib/utils";
 
 function SectionHeading({
   title,
@@ -99,7 +99,9 @@ export default async function SpaceDetailPage({
       <section className="mt-10">
         <SectionHeading title="Projects" count={spaceProjects.length} />
         <ul className="mt-3 divide-y divide-border">
-          {spaceProjects.map((project) => (
+          {spaceProjects.map((project) => {
+            const n = spaceTasks.filter((t) => t.projectId === project.id).length;
+            return (
             <li key={project.id}>
               <Link
                 href={`/projects/${project.id}`}
@@ -116,12 +118,12 @@ export default async function SpaceDetailPage({
                   ) : null}
                 </div>
                 <span className="shrink-0 text-xs text-muted-foreground">
-                  {spaceTasks.filter((t) => t.projectId === project.id).length}{" "}
-                  tasks
+                  {`${n} ${plural(n, "task")}`}
                 </span>
               </Link>
             </li>
-          ))}
+            );
+          })}
           {spaceProjects.length === 0 ? (
             <li className="py-3 text-sm text-muted-foreground">No projects yet.</li>
           ) : null}

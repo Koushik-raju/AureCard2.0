@@ -22,9 +22,9 @@ describe("buildMindGraph", () => {
     expect(docs.get("doc:d1")?.shared).toBe(true);
     expect(docs.get("doc:d2")?.shared).toBe(true);
     expect(docs.get("doc:d3")?.shared).toBe(false);
-    // Edges link recordings to their shared topic.
-    expect(graph.edges).toContainEqual({ from: "doc:d1", to: "topic:Bug" });
-    expect(graph.edges).toContainEqual({ from: "doc:d2", to: "topic:Bug" });
+    // Edges link recordings to their shared topic (ids are lowercase).
+    expect(graph.edges).toContainEqual({ from: "doc:d1", to: "topic:bug" });
+    expect(graph.edges).toContainEqual({ from: "doc:d2", to: "topic:bug" });
   });
 
   it("lays nodes out by depth without overlap", () => {

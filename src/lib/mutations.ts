@@ -33,6 +33,22 @@ function newId(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
+/**
+ * Tags are stored lowercase + trimmed + de-duplicated so "Bug" and "bug"
+ * never split into separate topics. Display keeps the stored form.
+ */
+export function normalizeTags(tags?: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of tags ?? []) {
+    const t = String(raw ?? "").trim().toLowerCase();
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
+
 /** Chunk a transcript into ≤1200-char paragraph blocks for storage. */
 function splitForStorage(text: string): string[] {
   const lines = text
@@ -501,6 +517,7 @@ export async function createTask(
   const assignees = parseAssignees(
     input.assignees ?? (input.assignee as string | string[] | undefined)
   );
+  const tags = normalizeTags(input.tags);
   if (!isDbConfigured) {
     memory.tasks.push({
       id,
@@ -514,7 +531,7 @@ export async function createTask(
       assignees: assignees.length > 0 ? assignees : undefined,
       description: input.description?.trim() || undefined,
       dueDate: input.dueDate || undefined,
-      tags: input.tags?.length ? input.tags : undefined,
+      tags: tags.length ? tags : undefined,
       quote: input.quote?.trim() || undefined,
       sourceDocId: input.sourceDocId || undefined,
     });
@@ -535,7 +552,7 @@ export async function createTask(
     assignee: assignees[0] ?? null,
     description: input.description?.trim() || null,
     due_date: input.dueDate || null,
-    tags: input.tags?.length ? input.tags : [],
+    tags,
     quote: input.quote?.trim() || null,
     source_doc_id: input.sourceDocId || null,
   };
@@ -1036,7 +1053,7 @@ export async function updateTask(input: EditTaskInput): Promise<{ error?: string
     changed.push(input.startDate ? `the start date to ${input.startDate}` : "the start date");
   }
   if (input.tags !== undefined) {
-    patch.tags = input.tags;
+    patch.tags = normalizeTags(input.tags);
     changed.push("the tags");
   }
   if (input.quote !== undefined) {

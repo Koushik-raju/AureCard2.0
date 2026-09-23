@@ -19,6 +19,7 @@ import type {
   TaskStatus,
 } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
+import { formatDueDate } from "@/lib/dates";
 import { isOverdueTask } from "@/lib/due";
 import { LIBRARY_TYPE_LABEL, resolveDocType } from "@/lib/doc-type";
 import { assigneesEqual, formatAssignees, getTaskAssignees, parseAssignees } from "@/lib/assignees";
@@ -151,13 +152,6 @@ function parseTags(value: string): string[] {
     .map((t) => t.trim())
     .filter(Boolean)
     .slice(0, 10);
-}
-
-function formatDate(date?: string) {
-  if (!date) return null;
-  const d = new Date(date + "T00:00:00");
-  if (isNaN(d.getTime())) return null;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 export function TaskDetail({
@@ -375,7 +369,7 @@ export function TaskDetail({
           ) : (
             <>
               <Button type="button" variant="outline" size="sm" onClick={startEditing}>
-                <Pencil className="size-3.5" /> Update
+                <Pencil className="size-3.5" /> Edit
               </Button>
               <TaskMenu taskId={task.id} taskTitle={task.title} />
             </>
@@ -484,8 +478,7 @@ export function TaskDetail({
         </div>
       ) : (
         <>
-          <dl className="mx-auto mt-6 grid max-w-prose grid-cols-2 gap-x-6 gap-y-1 rounded-xl border border-border bg-card p-5 sm:grid-cols-3 lg:grid-cols-5">
-            <Field label="Status">{getStatusLabel(status)}</Field>
+          <dl className="mx-auto mt-6 grid max-w-prose grid-cols-2 gap-x-6 gap-y-1 rounded-xl border border-border bg-card p-5 sm:grid-cols-3 lg:grid-cols-4">
             <Field label="Priority">{task.priority ? priorityCapital(task.priority) : "—"}</Field>
             <Field label="Assignees">
               {getTaskAssignees(task).length > 0 ? (
@@ -500,7 +493,7 @@ export function TaskDetail({
             <Field label="Due date">
               {task.dueDate ? (
                 <span className={isOverdueTask(task) ? "font-medium text-destructive" : undefined}>
-                  {formatDate(task.dueDate)}
+                  {formatDueDate(task.dueDate)}
                 </span>
               ) : (
                 "—"

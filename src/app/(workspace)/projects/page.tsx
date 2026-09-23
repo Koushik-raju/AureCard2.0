@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getSpaces, getProjects, getTasks } from "@/lib/repository";
+import { plural } from "@/lib/utils";
 import { CreateProjectButton } from "@/components/create/create-project-form";
 import { ProjectMenu } from "@/components/create/entity-menus";
 import { accentStyles } from "@/lib/accents";
@@ -62,7 +63,7 @@ export default async function ProjectsPage() {
                         </p>
                       ) : null}
                       <div className="mt-4 text-xs text-muted-foreground">
-                        {taskCount} tasks
+                        {taskCount} {plural(taskCount, "task")}
                       </div>
                     </Link>
                     <span className="absolute right-2 top-2">

@@ -76,7 +76,7 @@ function formatElapsed(totalSecs: number): string {
 }
 
 function defaultTitle(now: Date): string {
-  const day = now.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const day = now.toLocaleDateString("en-US", { day: "numeric", month: "short" });
   const time = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: false });
   return `Recording ${day}, ${time}`;
 }

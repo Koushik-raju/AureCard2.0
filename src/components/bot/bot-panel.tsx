@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Bot, Sparkles, User } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, plural } from "@/lib/utils";
 import type { DocumentRef, Project, Space, Task, TaskItem } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -54,7 +54,7 @@ function respond(input: string, data: BotData): ChatMessage {
   if (/^(hi|hello|hey|yo|hii|hola|good (morning|afternoon|evening))\b/.test(q)) {
     return {
       role: "bot",
-      text: `Hello! ${tasks.length} tasks, ${projects.length} projects and ${docs.length} documents are live across ${spaces.length} spaces. Ask me about work — overdue tasks, top priorities, or what to focus on.`,
+      text: `Hello! ${tasks.length} ${plural(tasks.length, "task")}, ${projects.length} ${plural(projects.length, "project")} and ${docs.length} ${plural(docs.length, "document")} are live across ${spaces.length} ${plural(spaces.length, "space")}. Ask me about work — overdue tasks, top priorities, or what to focus on.`,
       suggestions: [
         { label: "What should I focus on?", href: "/bot" },
         { label: "Overdue tasks", href: "/bot" },
@@ -136,7 +136,7 @@ function respond(input: string, data: BotData): ChatMessage {
     const pct = tasks.length > 0 ? Math.round((counts.done / tasks.length) * 100) : 0;
     return {
       role: "bot",
-      text: `Across ${tasks.length} tasks: ${counts.todo} to do, ${counts["in-progress"]} in progress, ${counts["in-review"]} in review, ${counts.done} done (${pct}% finished).`,
+      text: `Across ${tasks.length} ${plural(tasks.length, "task")}: ${counts.todo} to do, ${counts["in-progress"]} in progress, ${counts["in-review"]} in review, ${counts.done} done (${pct}% finished).`,
       suggestions: [{ label: "View all tasks", href: "/tasks" }],
     };
   }
@@ -147,7 +147,7 @@ function respond(input: string, data: BotData): ChatMessage {
     }
     return {
       role: "bot",
-      text: `You have ${projects.length} projects:`,
+      text: `You have ${projects.length} ${plural(projects.length, "project")}:`,
       suggestions: projects.slice(0, 6).map((p) => ({
         label: p.name,
         href: `/projects/${p.id}`,
@@ -161,7 +161,7 @@ function respond(input: string, data: BotData): ChatMessage {
     }
     return {
       role: "bot",
-      text: `You have ${spaces.length} spaces:`,
+      text: `You have ${spaces.length} ${plural(spaces.length, "space")}:`,
       suggestions: spaces.map((s) => ({
         label: s.name,
         href: `/spaces/${s.id}`,
@@ -175,7 +175,7 @@ function respond(input: string, data: BotData): ChatMessage {
     }
     return {
       role: "bot",
-      text: `${docs.length} documents in your library. The most recent:`,
+      text: `${docs.length} ${plural(docs.length, "document")} in your library. The most recent:`,
       suggestions: docs.slice(0, 6).map((d) => ({
         label: d.title,
         href: `/docs/${d.id}`,

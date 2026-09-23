@@ -96,16 +96,18 @@ export function computeInsights(input: InsightsInput): Insights {
     .sort((a, b) => openSortKey(a).localeCompare(openSortKey(b)))
     .slice(0, 5);
 
-  const tagCounts = new Map<string, number>();
+  const tagCounts = new Map<string, { display: string; count: number }>();
   for (const task of input.tasks) {
     for (const raw of task.tags ?? []) {
-      const tag = raw.trim();
-      if (!tag) continue;
-      tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+      const key = raw.trim().toLowerCase();
+      if (!key) continue;
+      const entry = tagCounts.get(key) ?? { display: raw.trim(), count: 0 };
+      entry.count += 1;
+      tagCounts.set(key, entry);
     }
   }
-  const topics: TopicCount[] = [...tagCounts.entries()]
-    .map(([topic, count]) => ({ topic, count }))
+  const topics: TopicCount[] = [...tagCounts.values()]
+    .map(({ display, count }) => ({ topic: display, count }))
     .sort((a, b) => b.count - a.count || a.topic.localeCompare(b.topic))
     .slice(0, 8);
 

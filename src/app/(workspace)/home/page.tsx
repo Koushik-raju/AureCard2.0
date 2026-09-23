@@ -5,7 +5,7 @@ import {
   getDocuments,
   getSpaces,
 } from "@/lib/repository";
-import { formatRelativeTime } from "@/lib/dates";
+import { formatRelativeTime, formatDueDate } from "@/lib/dates";
 import { getDueTodayTasks, getOverdueTasks } from "@/lib/due";
 
 function formatGreeting() {
@@ -21,7 +21,7 @@ const dateString = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
 }).format(new Date());
 
-function HourStrip() {
+function HourStrip({ counts }: { counts: Record<number, number> }) {
   const now = new Date();
   const hour = now.getHours();
   const fmt = new Intl.DateTimeFormat("en-US", {
@@ -35,6 +35,7 @@ function HourStrip() {
     <div className="flex items-end gap-5 overflow-x-auto pb-1" aria-label="Today&apos;s hours">
       {hours.map((h) => {
         const active = h === hour;
+        const n = counts[h] ?? 0;
         return (
           <div key={h} className="flex min-w-9 flex-col items-center gap-1.5">
             <span
@@ -53,6 +54,11 @@ function HourStrip() {
                   : "h-4 w-px bg-border"
               }
             />
+            <span className="flex h-2 items-center" title={n > 0 ? `${n} event${n === 1 ? "" : "s"}` : undefined}>
+              {n > 0 ? (
+                <span className="size-1.5 rounded-full bg-primary/70" aria-hidden="true" />
+              ) : null}
+            </span>
           </div>
         );
       })}
@@ -114,6 +120,19 @@ export default async function HomePage() {
   ]);
 
   const spaceName = new Map(spaces.map((s) => [s.id, s.name]));
+  const taskById = new Map(tasks.map((t) => [t.id, t] as const));
+  const now = new Date();
+
+  // Activity events bucketed by local hour for the timeline strip.
+  const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+  const hourCounts: Record<number, number> = {};
+  for (const a of activity) {
+    if (!a.createdAt) continue;
+    const d = new Date(a.createdAt);
+    if (Number.isNaN(d.getTime())) continue;
+    if (`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` !== todayKey) continue;
+    hourCounts[d.getHours()] = (hourCounts[d.getHours()] ?? 0) + 1;
+  }
 
   function taskItem(task: (typeof tasks)[number]) {
     return {
@@ -122,7 +141,7 @@ export default async function HomePage() {
       meta: [
         task.spaceId ? spaceName.get(task.spaceId) ?? "" : "",
         task.priority ? `· ${capitalize(task.priority)}` : "",
-        task.dueDate ? `· Due ${formatShortDate(task.dueDate)}` : "",
+        task.dueDate ? `· Due ${formatDueDate(task.dueDate)}` : "",
       ]
         .filter(Boolean)
         .join(" "),
@@ -136,7 +155,13 @@ export default async function HomePage() {
   const recentActivity = activity.slice(0, 5).map((item) => ({
     id: item.id,
     title: item.text,
-    meta: item.createdAt ? formatRelativeTime(item.createdAt) : item.when,
+    meta: [
+      item.author,
+      taskById.get(item.taskId)?.title,
+      item.createdAt ? formatRelativeTime(item.createdAt) : item.when,
+    ]
+      .filter(Boolean)
+      .join(" · "),
     href: `/tasks/${item.taskId}`,
   }));
 
@@ -166,9 +191,11 @@ export default async function HomePage() {
         </h1>
       </header>
 
-      <section className="mt-8">
-        <HourStrip />
-      </section>
+      {activity.length > 0 ? (
+        <section className="mt-8">
+          <HourStrip counts={hourCounts} />
+        </section>
+      ) : null}
 
       <section className="mt-10">
         <SectionHeading>Overdue</SectionHeading>
@@ -200,11 +227,4 @@ export default async function HomePage() {
 
 function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function formatShortDate(date?: string) {
-  if (!date) return "";
-  const d = new Date(date + "T00:00:00");
-  if (isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
