@@ -14,7 +14,7 @@ const PLANS: { value: Plan; name: string; price: string; blurb: string; features
     name: "Starter",
     price: "$0",
     blurb: "For personal capture and everyday planning.",
-    features: ["Unlimited spaces & tasks", "In-browser recording", "Library & Ask Aure", "7-day insights"],
+    features: ["Unlimited spaces & tasks", "In-browser recording", "Library & Atlas Assistant", "7-day insights"],
   },
   {
     value: "pro",

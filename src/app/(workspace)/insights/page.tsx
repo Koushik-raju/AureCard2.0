@@ -80,7 +80,7 @@ export default async function InsightsPage() {
   return (
     <ContentWrap>
       <PageHeader
-        eyebrow="Aure"
+        eyebrow="Atlas"
         title="Insights"
         description="Weekly digests, 7/30-day metrics and open questions raised from your recordings — computed live from your workspace."
       />

@@ -28,7 +28,7 @@ export default async function MindmapPage() {
   return (
     <ContentWrap wide>
       <PageHeader
-        eyebrow="Aure"
+        eyebrow="Atlas"
         title="Mind map"
         description="Whole-library concept map. Subjects in more than one recording highlight as amber branches; standalone recordings stay grey."
       />

@@ -28,7 +28,7 @@ const NAV_GROUPS = [
     items: [{ label: "Record", href: "/record", icon: Mic }],
   },
   {
-    label: "Aure",
+    label: "Atlas",
     items: [
       { label: "Home", href: "/home", icon: Home },
       { label: "Library", href: "/docs", icon: FileText },

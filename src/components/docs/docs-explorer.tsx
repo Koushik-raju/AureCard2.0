@@ -16,17 +16,9 @@ import { Button } from "@/components/ui/button";
 type LibraryView = "recordings" | "notes" | "files";
 type TypeFilter = "all" | RecordingType;
 
-export type LibraryOpenTask = {
-  id: string;
-  title: string;
-  dueDate?: string;
-  sourceDocId?: string;
-};
-
 type DocsExplorerProps = {
   documents: DocumentRef[];
   spaces: Space[];
-  openTasks: LibraryOpenTask[];
   /** Attachment metadata per document (no file bytes) for item typing. */
   mediaByDoc: Record<string, { mime: string; name: string; size: number }[]>;
 };
@@ -99,61 +91,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <h2 className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
       {children}
     </h2>
-  );
-}
-
-function TasksStrip({
-  openTasks,
-  docTitle,
-  docDuration,
-}: {
-  openTasks: LibraryOpenTask[];
-  docTitle: (id: string) => string | undefined;
-  docDuration: (id: string) => string | null;
-}) {
-  if (openTasks.length === 0) return null;
-  const shown = openTasks.slice(0, 3);
-  return (
-    <section aria-label="Open tasks" className="mt-6">
-      <div className="flex items-baseline justify-between gap-4">
-        <SectionLabel>Tasks</SectionLabel>
-        <Link
-          href="/tasks"
-          className="shrink-0 text-xs font-medium text-primary hover:underline"
-        >
-          See all · {openTasks.length}
-        </Link>
-      </div>
-      <ul className="divide-y divide-border">
-        {shown.map((task) => {
-          const source = task.sourceDocId ? docTitle(task.sourceDocId) : undefined;
-          const duration = task.sourceDocId ? docDuration(task.sourceDocId) : null;
-          return (
-            <li key={task.id} className="py-3">
-              <Link
-                href={`/tasks/${task.id}`}
-                className="font-serif text-lg leading-snug hover:underline"
-              >
-                {task.title}
-              </Link>
-              <p className="mt-0.5 font-serif text-sm italic text-muted-foreground">
-                {task.dueDate ? `due ${task.dueDate}` : "no date was given"}
-              </p>
-              {source ? (
-                <p className="mt-0.5 text-xs font-medium text-primary">
-                  {task.sourceDocId ? (
-                    <Link href={`/docs/${task.sourceDocId}`} className="hover:underline">
-                      {source}
-                      {duration ? ` · ${duration}` : ""}
-                    </Link>
-                  ) : null}
-                </p>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
-    </section>
   );
 }
 
@@ -270,7 +207,7 @@ function NoteComposer({ spaces }: { spaces: Space[] }) {
           if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
         }}
         rows={3}
-        placeholder="Write the note — thoughts, a note to someone, anything. Aure files and structures it."
+          placeholder="Write the note — thoughts, a note to someone, anything. Atlas files and structures it."
         className="w-full resize-y bg-transparent font-serif text-[17px] leading-relaxed placeholder:text-muted-foreground/70 focus:outline-none"
       />
       <div className="mt-3 flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Note type">
@@ -333,12 +270,10 @@ function NoteComposer({ spaces }: { spaces: Space[] }) {
   );
 }
 
-export function DocsExplorer({ documents, spaces, openTasks, mediaByDoc }: DocsExplorerProps) {
+export function DocsExplorer({ documents, spaces, mediaByDoc }: DocsExplorerProps) {
   const [view, setView] = useState<LibraryView>("recordings");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [query, setQuery] = useState("");
-
-  const docById = useMemo(() => new Map(documents.map((d) => [d.id, d])), [documents]);
 
   const typeOf = useCallback(
     (d: DocumentRef): LibraryItemType => resolveDocType(d, mimesOf(mediaByDoc, d.id)),
@@ -378,9 +313,6 @@ export function DocsExplorer({ documents, spaces, openTasks, mediaByDoc }: DocsE
       return true;
     });
   }, [documents, query]);
-
-  const docTitle = (id: string) => docById.get(id)?.title;
-  const docDuration = (id: string) => formatDuration(docById.get(id)?.durationSecs);
 
   const activeTypeLabel =
     typeFilter === "all"
@@ -433,8 +365,6 @@ export function DocsExplorer({ documents, spaces, openTasks, mediaByDoc }: DocsE
 
       {view === "notes" ? <NoteComposer spaces={spaces} /> : null}
 
-      <TasksStrip openTasks={openTasks} docTitle={docTitle} docDuration={docDuration} />
-
       {view === "recordings" ? (
         <>
           <div
@@ -484,7 +414,7 @@ export function DocsExplorer({ documents, spaces, openTasks, mediaByDoc }: DocsE
               </p>
               {activeTypeLabel ? (
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Aure sorts notes by what they sound like. Try another filter.
+                  Atlas sorts notes by what they sound like. Try another filter.
                 </p>
               ) : null}
             </div>
@@ -557,7 +487,7 @@ export function DocsExplorer({ documents, spaces, openTasks, mediaByDoc }: DocsE
             <div className="py-16 text-center">
               <p className="font-serif text-2xl tracking-tight">No notes yet.</p>
               <p className="mt-2 text-sm text-muted-foreground">
-                Write one above — Aure files and structures it.
+                Write one above — Atlas files and structures it.
               </p>
             </div>
           ) : null}

@@ -171,7 +171,7 @@ alter table document_blocks add constraint document_blocks_task_id_fkey foreign 
 alter table task_activity add column if not exists author text not null default '';
 alter table task_activity add column if not exists created_at timestamptz not null default now();
 
--- Task provenance (Aure-style quote + source note). Idempotent on existing DBs.
+-- Task provenance (Atlas-style quote + source note). Idempotent on existing DBs.
 alter table tasks add column if not exists quote text;
 alter table tasks add column if not exists source_doc_id text;
 alter table tasks drop constraint if exists tasks_source_doc_id_fkey;
@@ -180,7 +180,7 @@ alter table tasks add constraint tasks_source_doc_id_fkey foreign key (source_do
 -- Document timestamps for library time grouping (idempotent on existing DBs).
 alter table documents add column if not exists created_at timestamptz not null default now();
 
--- Aure-style library filing: recording type, duration and summary preview,
+-- Atlas-style library filing: recording type, duration and summary preview,
 -- plus the template used for typed notes. Idempotent on existing DBs.
 alter table documents add column if not exists recording_type text;
 alter table documents add column if not exists duration_secs integer;

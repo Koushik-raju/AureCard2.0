@@ -16,7 +16,7 @@ export default function SettingsPage() {
       <PageHeader
         eyebrow="System"
         title="Settings"
-        description="Account, voice, subscription, privacy and help. Sub-pages expand without changing the shell."
+        description="Account, voice, subscription, privacy and help — everything about how your workspace behaves."
       />
       <ul className="grid gap-3 sm:grid-cols-2">
         {SECTIONS.map((s) => (
