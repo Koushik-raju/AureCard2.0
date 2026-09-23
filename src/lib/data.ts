@@ -11,6 +11,7 @@ import type {
   TaskAttachment,
   TaskComment,
   TaskItem,
+  WorkspaceMember,
 } from "@/lib/types";
 
 export const spaces: Space[] = [
@@ -338,3 +339,8 @@ export function getTasksForDocument(documentId: string): Task[] {
 export function getBlocksForDocument(documentId: string): DocumentBlock[] {
   return documentBlocks.filter((b) => b.documentId === documentId);
 }
+
+export const members: WorkspaceMember[] = [
+  { id: "person-koushik", email: "koushik@atlasapp.io", name: "Koushik", role: "Owner" },
+  { id: "person-rashmi", email: "rashmi@atlasapp.io", name: "Rashmi", role: "Member" },
+];

@@ -193,6 +193,25 @@ alter table documents drop constraint if exists documents_source_doc_id_fkey;
 alter table documents add constraint documents_source_doc_id_fkey foreign key (source_doc_id) references documents(id) on delete set null;
 create index if not exists idx_docs_source_doc on documents(source_doc_id);
 
+-- ---------- Workspace members directory ----------
+
+create table if not exists members (
+  id text primary key,
+  email text not null unique,
+  name text not null,
+  role text not null default 'Member',
+  invited_by text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_members_email on members(email);
+
+-- Seed the directory with the workspace owners (safe to re-run).
+insert into members (id, name, email, role) values
+  ('person-koushik', 'Koushik', 'koushik@atlasapp.io', 'Owner'),
+  ('person-rashmi', 'Rashmi', 'rashmi@atlasapp.io', 'Member')
+on conflict (id) do update set name = excluded.name, email = excluded.email, role = excluded.role;
+
 -- ---------- Indexes ----------
 
 create index if not exists idx_projects_space on projects(space_id);
@@ -225,6 +244,7 @@ alter table task_attachments enable row level security;
 alter table documents enable row level security;
 alter table document_blocks enable row level security;
 alter table document_attachments enable row level security;
+alter table members enable row level security;
 
 drop policy if exists "workspace_select" on spaces;
 create policy "workspace_select" on spaces for select using (auth.role() = 'authenticated');
@@ -240,7 +260,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['projects','folders','lists','tasks','task_items','task_comments','task_activity','task_attachments','documents','document_blocks','document_attachments']
+  foreach t in array array['projects','folders','lists','tasks','task_items','task_comments','task_activity','task_attachments','documents','document_blocks','document_attachments','members']
   loop
     execute format('drop policy if exists "workspace_select" on %I;', t);
     execute format('create policy "workspace_select" on %I for select using (auth.role() = ''authenticated'');', t);
@@ -278,7 +298,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['spaces','projects','tasks','task_comments','task_items','folders','lists','task_activity','task_attachments','document_attachments']
+  foreach t in array array['spaces','projects','tasks','task_comments','task_items','folders','lists','task_activity','task_attachments','document_attachments','members']
   loop
     if not exists (
       select 1 from pg_publication_tables

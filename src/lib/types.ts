@@ -107,6 +107,20 @@ export type TaskActivity = {
   createdAt?: string;
 };
 
+export type MemberRole = "Owner" | "Admin" | "Member" | "Viewer";
+
+export const MEMBER_ROLES: MemberRole[] = ["Owner", "Admin", "Member", "Viewer"];
+
+/** Workspace directory entry (invited by email; distinct from org-chart names). */
+export type WorkspaceMember = {
+  id: string;
+  email: string;
+  name: string;
+  role: MemberRole;
+  invitedBy?: string;
+  createdAt?: string;
+};
+
 export type DocumentRef = {
   id: string;
   title: string;

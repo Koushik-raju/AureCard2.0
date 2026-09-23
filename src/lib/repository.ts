@@ -11,6 +11,7 @@ import type {
   TaskAttachment,
   TaskComment,
   TaskItem,
+  WorkspaceMember,
 } from "@/lib/types";
 import { createServerSupabase, isDbConfigured } from "@/lib/server-supabase";
 import * as memory from "@/lib/data";
@@ -102,6 +103,20 @@ function mapActivity(r: Row): TaskActivity {
     author: r.author ? String(r.author) : "System",
     text: String(r.text),
     when: String(r.when),
+    createdAt: r.created_at ? String(r.created_at) : undefined,
+  };
+}
+
+const MEMBER_ROLES = new Set(["Owner", "Admin", "Member", "Viewer"]);
+
+function mapMember(r: Row): WorkspaceMember {
+  const role = String(r.role ?? "Member");
+  return {
+    id: String(r.id),
+    email: String(r.email ?? ""),
+    name: String(r.name ?? ""),
+    role: (MEMBER_ROLES.has(role) ? role : "Member") as WorkspaceMember["role"],
+    invitedBy: r.invited_by ? String(r.invited_by) : undefined,
     createdAt: r.created_at ? String(r.created_at) : undefined,
   };
 }
@@ -224,6 +239,11 @@ export async function getComments(): Promise<TaskComment[]> {
 export async function getActivity(): Promise<TaskActivity[]> {
   if (!isDbConfigured) return memory.taskActivity;
   return queryAll("task_activity", mapActivity);
+}
+
+export async function getMembers(): Promise<WorkspaceMember[]> {
+  if (!isDbConfigured) return memory.members;
+  return queryAll("members", mapMember, { column: "created_at" });
 }
 
 export async function getDocuments(): Promise<DocumentRef[]> {

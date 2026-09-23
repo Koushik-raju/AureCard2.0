@@ -17,7 +17,9 @@ import type {
   TaskItem,
   TaskPriority,
   TaskStatus,
+  WorkspaceMember,
 } from "@/lib/types";
+import { MEMBER_ROLES } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
 import { parseAssignees } from "@/lib/assignees";
 import { normalizeTags } from "@/lib/tags";
@@ -1423,4 +1425,145 @@ export async function deleteBlock(documentId: string, blockId: string) {
   if (error) throw new Error(error.message);
   revalidatePath(`/docs/${documentId}`);
   revalidatePath("/search");
+}
+// ---------- Workspace members directory ----------
+
+function cleanMemberEmail(email: string): string | null {
+  const cleaned = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned)) return null;
+  return cleaned;
+}
+
+function cleanMemberRole(role: string | undefined): WorkspaceMember["role"] {
+  return (MEMBER_ROLES as readonly string[]).includes(role ?? "")
+    ? (role as WorkspaceMember["role"])
+    : "Member";
+}
+
+function defaultMemberName(email: string): string {
+  const local = email.split("@")[0] ?? "";
+  return (
+    local
+      .split(/[._-]+/)
+      .filter(Boolean)
+      .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+      .join(" ") || email
+  );
+}
+
+export async function inviteMember(input: {
+  email: string;
+  name?: string;
+  role?: string;
+}): Promise<{ id?: string; error?: string }> {
+  const email = cleanMemberEmail(input.email);
+  if (!email) return { error: "Enter a valid email address." };
+  const name = input.name?.trim() || defaultMemberName(email);
+  const role = cleanMemberRole(input.role);
+  const id = newId("person");
+  if (!isDbConfigured) {
+    if (memory.members.some((m) => m.email.toLowerCase() === email)) {
+      return { error: "That email is already in the directory." };
+    }
+    const user = await getCurrentUser();
+    memory.members.push({
+      id,
+      email,
+      name: name.slice(0, 80),
+      role,
+      invitedBy: user?.email ?? "",
+    });
+    revalidatePath("/org");
+    return { id };
+  }
+  const { client, user } = await requireClient();
+  const { data: existing } = await client
+    .from("members")
+    .select("id")
+    .eq("email", email)
+    .limit(1);
+  if (existing && existing.length > 0) {
+    return { error: "That email is already in the directory." };
+  }
+  const { error } = await client.from("members").insert({
+    id,
+    email,
+    name: name.slice(0, 80),
+    role,
+    invited_by: user.email ?? "",
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/org");
+  return { id };
+}
+
+async function countOwners(client: SupabaseClient | null): Promise<number> {
+  if (!client) return memory.members.filter((m) => m.role === "Owner").length;
+  const { data } = await client.from("members").select("id").eq("role", "Owner");
+  return data?.length ?? 0;
+}
+
+export async function updateMemberRole(
+  id: string,
+  role: string
+): Promise<{ error?: string }> {
+  const valid = cleanMemberRole(role);
+  if (!isDbConfigured) {
+    const member = memory.members.find((m) => m.id === id);
+    if (!member) return { error: "Not found." };
+    if (member.role === "Owner" && valid !== "Owner") {
+      if ((await countOwners(null)) <= 1) {
+        return { error: "The workspace needs at least one Owner." };
+      }
+    }
+    member.role = valid;
+    revalidatePath("/org");
+    return {};
+  }
+  const { client } = await requireClient();
+  const { data: current } = await client
+    .from("members")
+    .select("id,role")
+    .eq("id", id)
+    .limit(1);
+  if (!current || current.length === 0) return { error: "Not found." };
+  if (current[0].role === "Owner" && valid !== "Owner") {
+    if ((await countOwners(client)) <= 1) {
+      return { error: "The workspace needs at least one Owner." };
+    }
+  }
+  const { error } = await client.from("members").update({ role: valid }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/org");
+  return {};
+}
+
+export async function removeMember(id: string): Promise<{ error?: string }> {
+  if (!isDbConfigured) {
+    const idx = memory.members.findIndex((m) => m.id === id);
+    if (idx === -1) return { error: "Not found." };
+    if (
+      memory.members[idx].role === "Owner" &&
+      (await countOwners(null)) <= 1
+    ) {
+      return { error: "The workspace needs at least one Owner." };
+    }
+    memory.members.splice(idx, 1);
+    revalidatePath("/org");
+    return {};
+  }
+  const { client } = await requireClient();
+  const { data: current } = await client
+    .from("members")
+    .select("id,role")
+    .eq("id", id)
+    .limit(1);
+  if (!current || current.length === 0) return { error: "Not found." };
+  if (current[0].role === "Owner" && (await countOwners(client)) <= 1) {
+    return { error: "The workspace needs at least one Owner." };
+  }
+  const { error } = await client.from("members").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/org");
+  return {};
 }

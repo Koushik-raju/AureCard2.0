@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Building2, Plus, Trash2, UserPlus, Users } from "lucide-react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Building2, Copy, Check, Plus, Trash2, UserPlus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,11 +10,13 @@ import { PREF_KEYS, readJson, writeJson } from "@/lib/prefs";
 import {
   EMPTY_ORG,
   computeDigests,
-  memberWorkload,
+  memberWorkloadFor,
   newOrgId,
   type OrgChart,
 } from "@/lib/org";
-import type { DocumentRef, Space, Task } from "@/lib/types";
+import { MEMBER_ROLES, type DocumentRef, type Space, type Task, type WorkspaceMember } from "@/lib/types";
+import { inviteMember, removeMember, updateMemberRole } from "@/lib/mutations";
+import { AssigneeAvatar } from "@/components/tasks/hues";
 
 function loadOrg(): OrgChart {
   const raw = readJson<OrgChart>(PREF_KEYS.org, EMPTY_ORG);
@@ -27,18 +30,26 @@ export function OrgManager({
   spaces,
   tasks,
   documents,
+  directory,
 }: {
   spaces: Space[];
   tasks: Task[];
   documents: DocumentRef[];
+  directory: WorkspaceMember[];
 }) {
+  const router = useRouter();
   const [org, setOrg] = useState<OrgChart>(loadOrg);
   const [deptName, setDeptName] = useState("");
   const [deptSpace, setDeptSpace] = useState("");
-  const [memberName, setMemberName] = useState("");
+  const [memberPick, setMemberPick] = useState("");
   const [memberRole, setMemberRole] = useState("");
   const [memberDept, setMemberDept] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviteRole, setInviteRole] = useState<string>("Member");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
     writeJson(PREF_KEYS.org, org);
@@ -72,13 +83,17 @@ export function OrgManager({
   }
 
   function addMember() {
-    const name = memberName.trim();
-    if (!name) {
-      setError("Give the person a name.");
+    const person = directory.find((d) => d.id === memberPick);
+    if (!person) {
+      setError("Pick someone from the directory.");
       return;
     }
     if (!memberDept) {
       setError("Choose a department for this person.");
+      return;
+    }
+    if (org.members.some((m) => m.departmentId === memberDept && (m.email === person.email || m.name === person.name))) {
+      setError("That person is already in this department.");
       return;
     }
     setError(null);
@@ -88,22 +103,191 @@ export function OrgManager({
         ...prev.members,
         {
           id: newOrgId("person"),
-          name,
-          role: memberRole.trim() || "Member",
+          name: person.name,
+          email: person.email,
+          role: memberRole.trim() || person.role,
           departmentId: memberDept,
         },
       ],
     }));
-    setMemberName("");
+    setMemberPick("");
     setMemberRole("");
   }
 
-  function removeMember(id: string) {
+  function removeOrgMember(id: string) {
     setOrg((prev) => ({ ...prev, members: prev.members.filter((m) => m.id !== id) }));
+  }
+
+  function sendInvite() {
+    setError(null);
+    startTransition(async () => {
+      const result = await inviteMember({
+        email: inviteEmail,
+        name: inviteName || undefined,
+        role: inviteRole,
+      });
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setInviteEmail("");
+      setInviteName("");
+      setInviteRole("Member");
+      router.refresh();
+    });
+  }
+
+  function changeRole(id: string, role: string) {
+    setError(null);
+    startTransition(async () => {
+      const result = await updateMemberRole(id, role);
+      if (result.error) setError(result.error);
+      router.refresh();
+    });
+  }
+
+  function deleteDirectoryMember(id: string, name: string) {
+    setError(null);
+    startTransition(async () => {
+      const result = await removeMember(id);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      // Drop matching org-chart rows so workload stops counting them here.
+      setOrg((prev) => ({
+        ...prev,
+        members: prev.members.filter((m) => m.id !== id && m.name !== name),
+      }));
+      router.refresh();
+    });
+  }
+
+  async function copyInviteLink(email: string, id: string) {
+    const url = `${window.location.origin}/login`;
+    try {
+      await navigator.clipboard.writeText(
+        `You've been invited to Atlas. Sign in with ${email} here: ${url}`
+      );
+      setCopiedId(id);
+      setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1500);
+    } catch {
+      setError("Couldn't copy — long-press the login URL instead.");
+    }
   }
 
   return (
     <div className="space-y-8">
+      <section aria-label="Workspace members" className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center gap-2.5">
+          <span className="flex size-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <Users className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="font-serif text-lg font-medium tracking-tight">
+              Workspace members · {directory.length}
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              The directory of real people. Department picks come from here.
+            </p>
+          </div>
+        </div>
+        {directory.length > 0 ? (
+          <ul className="mt-4 divide-y divide-border">
+            {directory.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center gap-2 py-2.5">
+                <AssigneeAvatar name={d.name} size="sm" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{d.name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{d.email}</span>
+                </span>
+                <select
+                  value={d.role}
+                  onChange={(e) => changeRole(d.id, e.target.value)}
+                  disabled={isPending}
+                  aria-label={`Role for ${d.name}`}
+                  className="h-8 rounded-md border border-input bg-transparent px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {MEMBER_ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+                <span
+                  className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground"
+                  title="Open tasks assigned to this person"
+                >
+                  {memberWorkloadFor(d, tasks)} open
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void copyInviteLink(d.email, d.id)}
+                  aria-label={`Copy invite link for ${d.name}`}
+                  title="Copy invite link"
+                >
+                  {copiedId === d.id ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => deleteDirectoryMember(d.id, d.name)}
+                  aria-label={`Remove ${d.name}`}
+                  disabled={isPending}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-4 text-sm text-muted-foreground">Nobody yet — invite the first person below.</p>
+        )}
+        <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
+          <div className="space-y-1.5">
+            <Label htmlFor="invite-email">Email</Label>
+            <Input
+              id="invite-email"
+              type="email"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              placeholder="name@example.com"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="invite-name">Name (optional)</Label>
+            <Input
+              id="invite-name"
+              value={inviteName}
+              onChange={(e) => setInviteName(e.target.value)}
+              placeholder="Derived from email"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="invite-role">Role</Label>
+            <select
+              id="invite-role"
+              value={inviteRole}
+              onChange={(e) => setInviteRole(e.target.value)}
+              className="h-9 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring"
+            >
+              {MEMBER_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Button onClick={sendInvite} disabled={isPending || !inviteEmail.trim()} className="min-h-9">
+            <UserPlus className="size-4" /> Invite
+          </Button>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Roles are organizational labels — everyone signed in shares the workspace. They sign in with the invited email to join.
+        </p>
+      </section>
+
       {digests.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border bg-muted/40 px-6 py-10 text-center text-sm text-muted-foreground">
           No departments yet. Create your first department below — notes roll
@@ -162,12 +346,12 @@ export function OrgManager({
                         className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground"
                         title="Open tasks assigned to this person"
                       >
-                        {memberWorkload(m.name, tasks)} open
+                        {memberWorkloadFor({ name: m.name, email: m.email }, tasks)} open
                       </span>
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => removeMember(m.id)}
+                          onClick={() => removeOrgMember(m.id)}
                         aria-label={`Remove ${m.name}`}
                       >
                         <Trash2 className="size-3.5" />
@@ -227,21 +411,32 @@ export function OrgManager({
           </h2>
           <div className="mt-4 space-y-3">
             <div className="space-y-2">
-              <Label htmlFor="member-name">Name</Label>
-              <Input
-                id="member-name"
-                value={memberName}
-                onChange={(e) => setMemberName(e.target.value)}
-                placeholder="e.g. Dr. Rao"
-              />
+              <Label htmlFor="member-pick">Person</Label>
+              <select
+                id="member-pick"
+                value={memberPick}
+                onChange={(e) => {
+                  setMemberPick(e.target.value);
+                  const picked = directory.find((d) => d.id === e.target.value);
+                  if (picked) setMemberRole(picked.role);
+                }}
+                className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring"
+              >
+                <option value="">Pick from directory…</option>
+                {directory.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} · {d.email}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="member-role">Role</Label>
+              <Label htmlFor="member-role">Role in department</Label>
               <Input
                 id="member-role"
                 value={memberRole}
                 onChange={(e) => setMemberRole(e.target.value)}
-                placeholder="e.g. Physician"
+                placeholder="Defaults to the directory role"
               />
             </div>
             <div className="space-y-2">
@@ -268,8 +463,9 @@ export function OrgManager({
               Add person
             </Button>
             <p className="text-xs text-muted-foreground">
-              Workload counts match open tasks assigned to the same name. Digest
-              visibility per department follows the roll-up scope above.
+              Picked from the directory above, so workload counts match real
+              assignees by name or email. Digest visibility per department
+              follows the roll-up scope above.
             </p>
           </div>
         </div>

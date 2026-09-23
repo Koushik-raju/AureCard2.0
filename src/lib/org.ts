@@ -12,6 +12,8 @@ export type Member = {
   name: string;
   role: string;
   departmentId: string;
+  /** Directory email, when added from the workspace directory. */
+  email?: string;
 };
 
 export type OrgChart = {
@@ -36,8 +38,27 @@ export type DepartmentDigest = {
 };
 
 export function memberWorkload(memberName: string, tasks: Task[]): number {
-  const needle = memberName.trim().toLowerCase();
-  if (!needle) return 0;
+  return memberWorkloadFor({ name: memberName }, tasks);
+}
+
+/**
+ * Open-task count for a directory member. Matches task assignees against the
+ * member's name, email, or email local-part (case-insensitive), so directory
+ * entries line up with free-text assignees like "Koushik".
+ */
+export function memberWorkloadFor(
+  member: { name: string; email?: string },
+  tasks: Task[]
+): number {
+  const needles = new Set<string>();
+  const add = (v: string | undefined) => {
+    const s = (v ?? "").trim().toLowerCase();
+    if (s) needles.add(s);
+  };
+  add(member.name);
+  add(member.email);
+  if (member.email?.includes("@")) add(member.email.split("@")[0]);
+  if (needles.size === 0) return 0;
   return tasks.filter((t) => {
     if (t.status === "done") return false;
     const list =
@@ -48,7 +69,7 @@ export function memberWorkload(memberName: string, tasks: Task[]): number {
           : [];
     return list.some((a) => {
       const parts = String(a).split(",");
-      return parts.some((p) => p.trim().toLowerCase() === needle);
+      return parts.some((p) => needles.has(p.trim().toLowerCase()));
     });
   }).length;
 }

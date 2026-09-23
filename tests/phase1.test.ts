@@ -13,6 +13,7 @@ import {
   DEFAULT_NOTIFICATION_PREFS,
   applyNotificationPrefs,
 } from "@/lib/notifications";
+import { memberWorkloadFor } from "@/lib/org";
 import type { Task } from "@/lib/types";
 
 function task(overrides: Partial<Task> & { id: string }): Task {
@@ -125,6 +126,20 @@ describe("normalizeTags", () => {
       "production",
     ]);
     expect(normalizeTags(undefined)).toEqual([]);
+  });
+});
+
+describe("memberWorkloadFor", () => {
+  const tasks = [
+    { id: "a", title: "A", spaceId: "s1", status: "todo", assignees: ["Koushik"] },
+    { id: "b", title: "B", spaceId: "s1", status: "todo", assignee: "rashmi@atlasapp.io" },
+    { id: "c", title: "C", spaceId: "s1", status: "done", assignees: ["Koushik"] },
+  ] as never as Parameters<typeof memberWorkloadFor>[1];
+
+  it("matches by name, email or local-part, excluding done", () => {
+    expect(memberWorkloadFor({ name: "Koushik", email: "koushik@atlasapp.io" }, tasks)).toBe(1);
+    expect(memberWorkloadFor({ name: "Rashmi", email: "rashmi@atlasapp.io" }, tasks)).toBe(1);
+    expect(memberWorkloadFor({ name: "Nobody" }, tasks)).toBe(0);
   });
 });
 
