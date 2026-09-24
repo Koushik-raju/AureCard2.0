@@ -5,17 +5,26 @@ import {
   getTasks,
   getProjects,
   getSpaces,
+  getLists,
+  getFolders,
   getTaskItems,
   getDocuments,
   getTaskAttachments,
   getComments,
 } from "@/lib/repository";
 
-export default async function TasksPage() {
-  const [tasks, projects, spaces, taskItems, documents, attachments, comments, user] = await Promise.all([
+export default async function TasksPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ space?: string; project?: string; folder?: string; list?: string }>;
+}) {
+  const params = await searchParams;
+  const [tasks, projects, spaces, lists, folders, taskItems, documents, attachments, comments, user] = await Promise.all([
     getTasks(),
     getProjects(),
     getSpaces(),
+    getLists(),
+    getFolders(),
     getTaskItems(),
     getDocuments(),
     getTaskAttachments(),
@@ -57,7 +66,24 @@ export default async function TasksPage() {
         <CreateTaskButton spaces={spaces} projects={projects} />
       </header>
       <div className="mt-8">
-        <ExploreTasks tasks={tasks} projects={projects} spaces={spaces} counts={counts} itemsByTask={itemsByTask} currentUserEmail={user?.email} docTitle={docTitle} attachmentCounts={attachmentCounts} commentCounts={commentCounts} />
+        <ExploreTasks
+          key={`${params.space ?? ""}|${params.project ?? ""}|${params.folder ?? ""}|${params.list ?? ""}`}
+          tasks={tasks}
+          projects={projects}
+          spaces={spaces}
+          lists={lists}
+          folders={folders}
+          counts={counts}
+          itemsByTask={itemsByTask}
+          currentUserEmail={user?.email}
+          docTitle={docTitle}
+          attachmentCounts={attachmentCounts}
+          commentCounts={commentCounts}
+          initialSpaceId={params.space}
+          initialProjectId={params.project}
+          initialFolderId={params.folder}
+          initialListId={params.list}
+        />
       </div>
     </div>
   );

@@ -48,5 +48,20 @@ export async function GET() {
     comments,
     mediaMimes,
   });
-  return NextResponse.json({ entries });
+  return NextResponse.json({
+    entries,
+    tree: {
+      spaces,
+      projects,
+      folders,
+      lists,
+      tasks: tasks.map((t) => ({
+        id: t.id,
+        spaceId: t.spaceId,
+        projectId: t.projectId ?? null,
+        listId: t.listId ?? null,
+        status: t.status,
+      })),
+    },
+  });
 }

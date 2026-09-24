@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/app-sidebar";
+import { SpaceTree } from "@/components/layout/space-tree";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { InboxBell } from "@/components/layout/inbox-bell";
 import { SearchPalette } from "@/components/search/search-palette";
@@ -16,6 +17,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
   return (
       <SidebarProvider>
         <AppSidebar userEmail={user.email ?? "Unknown"} />
+        <SpaceTree />
       <SidebarInset>
         <div className="relative flex h-full flex-col">
           <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border bg-background/95 px-4 backdrop-blur sm:px-6">

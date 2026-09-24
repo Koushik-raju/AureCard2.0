@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import { LayoutGrid, List, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Project, Space, Task, TaskItem, TaskStatus } from "@/lib/types";
+import type { Folder, Project, Space, Task, TaskItem, TaskStatus } from "@/lib/types";
+import type { List as TaskList } from "@/lib/types";
 import { useTaskStatusOverrides } from "@/lib/session-store";
 import { Input } from "@/components/ui/input";
 import { GroupedTaskList } from "./grouped-task-list";
@@ -30,12 +31,18 @@ type ExploreTasksProps = {
   tasks: Task[];
   projects: Project[];
   spaces: Space[];
+  lists?: TaskList[];
+  folders?: Folder[];
   counts: { total: number; todo: number; inProgress: number; inReview: number; done: number };
   itemsByTask?: Record<string, TaskItem[]>;
   currentUserEmail?: string;
   docTitle?: Map<string, string>;
   attachmentCounts?: Map<string, number>;
   commentCounts?: Map<string, number>;
+  initialSpaceId?: string;
+  initialProjectId?: string;
+  initialFolderId?: string;
+  initialListId?: string;
 };
 
 const OWNER_TABS: { key: OwnerFilter; label: string }[] = [
@@ -44,14 +51,34 @@ const OWNER_TABS: { key: OwnerFilter; label: string }[] = [
   { key: "waiting", label: "Waiting on" },
 ];
 
-export function ExploreTasks({ tasks, projects, spaces, counts, itemsByTask, currentUserEmail, docTitle, attachmentCounts, commentCounts }: ExploreTasksProps) {
+export function ExploreTasks({ tasks, projects, spaces, lists = [], folders = [], counts, itemsByTask, currentUserEmail, docTitle, attachmentCounts, commentCounts, initialSpaceId, initialProjectId, initialFolderId, initialListId }: ExploreTasksProps) {
   const [view, setView] = useState<ViewMode>("list");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [owner, setOwner] = useState<OwnerFilter>("all");
-  const [spaceId, setSpaceId] = useState<string>("all");
-  const [projectId, setProjectId] = useState<string>("all");
+  const [spaceId, setSpaceId] = useState<string>(initialSpaceId ?? "all");
+  const [projectId, setProjectId] = useState<string>(initialProjectId ?? "all");
+  const [folderId, setFolderId] = useState<string>(initialFolderId ?? "all");
+  const [listId, setListId] = useState<string>(initialListId ?? "all");
   const [query, setQuery] = useState("");
   const overrides = useTaskStatusOverrides();
+
+  const listById = useMemo(() => {
+    const map = new Map<string, TaskList>();
+    for (const l of lists) map.set(l.id, l);
+    return map;
+  }, [lists]);
+
+  const folderName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const f of folders) map.set(f.id, f.name);
+    return map;
+  }, [folders]);
+
+  const listName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const l of lists) map.set(l.id, l.name);
+    return map;
+  }, [lists]);
 
   const projectName = useMemo(() => {
     const map = new Map<string, string>();
@@ -85,10 +112,15 @@ export function ExploreTasks({ tasks, projects, spaces, counts, itemsByTask, cur
         if (owner === "waiting" && (owners.length === 0 || isMine(owners, currentUserEmail))) return false;
         if (spaceId !== "all" && task.spaceId !== spaceId) return false;
         if (projectId !== "all" && task.projectId !== projectId) return false;
+        if (folderId !== "all") {
+          const folderOf = task.listId ? listById.get(task.listId)?.folderId : undefined;
+          if (folderOf !== folderId) return false;
+        }
+        if (listId !== "all" && task.listId !== listId) return false;
         if (q && !task.title.toLowerCase().includes(q)) return false;
         return true;
       });
-  }, [tasks, status, owner, currentUserEmail, spaceId, projectId, query, overrides]);
+  }, [tasks, status, owner, currentUserEmail, spaceId, projectId, folderId, listId, listById, query, overrides]);
 
   // Board view exists only for the "All" section; picking a status tab
   // drops back to the list so per-status boards never appear.
@@ -236,11 +268,15 @@ export function ExploreTasks({ tasks, projects, spaces, counts, itemsByTask, cur
         owner={owner}
         spaceName={spaceId === "all" ? null : (spaceName.get(spaceId) ?? null)}
         projectName={projectId === "all" ? null : (projectName.get(projectId) ?? null)}
+        folderName={folderId === "all" ? null : (folderName.get(folderId) ?? null)}
+        listName={listId === "all" ? null : (listName.get(listId) ?? null)}
         query={query.trim()}
         onClearStatus={() => pickStatus("all")}
         onClearOwner={() => setOwner("all")}
         onClearSpace={() => setSpaceId("all")}
         onClearProject={() => setProjectId("all")}
+        onClearFolder={() => setFolderId("all")}
+        onClearList={() => setListId("all")}
         onClearQuery={() => setQuery("")}
       />
 
@@ -266,22 +302,30 @@ function ActiveFilterPills({
   owner,
   spaceName,
   projectName,
+  folderName,
+  listName,
   query,
   onClearStatus,
   onClearOwner,
   onClearSpace,
   onClearProject,
+  onClearFolder,
+  onClearList,
   onClearQuery,
 }: {
   status: StatusFilter;
   owner: OwnerFilter;
   spaceName: string | null;
   projectName: string | null;
+  folderName: string | null;
+  listName: string | null;
   query: string;
   onClearStatus: () => void;
   onClearOwner: () => void;
   onClearSpace: () => void;
   onClearProject: () => void;
+  onClearFolder: () => void;
+  onClearList: () => void;
   onClearQuery: () => void;
 }) {
   const pills: { key: string; label: string; value: string; onClear: () => void }[] = [];
@@ -304,6 +348,12 @@ function ActiveFilterPills({
   if (spaceName) pills.push({ key: "space", label: "Space", value: spaceName, onClear: onClearSpace });
   if (projectName) {
     pills.push({ key: "project", label: "Project", value: projectName, onClear: onClearProject });
+  }
+  if (folderName) {
+    pills.push({ key: "folder", label: "Folder", value: folderName, onClear: onClearFolder });
+  }
+  if (listName) {
+    pills.push({ key: "list", label: "List", value: listName, onClear: onClearList });
   }
   if (query) pills.push({ key: "q", label: "Search", value: `“${query}”`, onClear: onClearQuery });
 
