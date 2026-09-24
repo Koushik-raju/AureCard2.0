@@ -18,7 +18,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
       <SidebarProvider>
         <AppSidebar userEmail={user.email ?? "Unknown"} />
         <SpaceTree />
-      <SidebarInset>
+      <SidebarInset className="min-w-0">
         <div className="relative flex h-full flex-col">
           <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border bg-background/95 px-4 backdrop-blur sm:px-6">
             <div className="flex min-w-0 items-center gap-2">

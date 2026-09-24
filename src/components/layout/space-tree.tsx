@@ -529,7 +529,7 @@ export function SpaceTree() {
     <aside
       aria-label="Spaces"
       style={{ width: panelWidth }}
-      className="sticky top-0 hidden h-screen shrink-0 flex-col overflow-y-auto border-r border-border bg-card/40 lg:flex relative"
+      className="sticky left-0 top-0 hidden h-screen shrink-0 flex-col overflow-y-auto border-r border-border bg-card lg:flex relative"
     >
       <div
         role="separator"
