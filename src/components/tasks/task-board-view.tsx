@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import type { Task, TaskItem, TaskStatus } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
@@ -32,6 +32,7 @@ type TaskBoardViewProps = {
 };
 
 export function TaskBoardView({ tasks, projectName, spaceName, itemsByTask, docTitle }: TaskBoardViewProps) {
+  const router = useRouter();
   const [localStatuses, setLocalStatuses] = useState<Record<string, TaskStatus>>({});
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overColumn, setOverColumn] = useState<TaskStatus | null>(null);
@@ -128,9 +129,11 @@ export function TaskBoardView({ tasks, projectName, spaceName, itemsByTask, docT
 
             <div className="flex flex-col gap-3">
               {columnTasks.map((task) => (
-                <Link
+                <div
                   key={task.id}
-                  href={`/tasks/${task.id}`}
+                  role="link"
+                  tabIndex={0}
+                  aria-label={`Open ${task.title}`}
                   draggable
                   onDragStart={(e) => {
                     setDraggingId(task.id);
@@ -141,8 +144,12 @@ export function TaskBoardView({ tasks, projectName, spaceName, itemsByTask, docT
                     setDraggingId(null);
                     setOverColumn(null);
                   }}
+                  onClick={() => router.push(`/tasks/${task.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") router.push(`/tasks/${task.id}`);
+                  }}
                   className={cn(
-                    "group rounded-lg border border-border bg-card p-3.5 transition-all hover:border-muted-foreground/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-grab active:cursor-grabbing",
+                    "group rounded-lg border border-border bg-card p-3.5 transition-all hover:border-muted-foreground/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer active:cursor-grabbing",
                     draggingId === task.id && "opacity-50"
                   )}
                 >
@@ -159,11 +166,13 @@ export function TaskBoardView({ tasks, projectName, spaceName, itemsByTask, docT
                     {task.projectId && task.spaceId ? " · " : ""}
                     {task.spaceId ? spaceName.get(task.spaceId) ?? "" : ""}
                   </p>
-                  <SourceLine
-                    quote={task.quote}
-                    sourceDocId={task.sourceDocId}
-                    sourceDocTitle={task.sourceDocId ? docTitle?.get(task.sourceDocId) : undefined}
-                  />
+                  <span onClick={(e) => e.stopPropagation()}>
+                    <SourceLine
+                      quote={task.quote}
+                      sourceDocId={task.sourceDocId}
+                      sourceDocTitle={task.sourceDocId ? docTitle?.get(task.sourceDocId) : undefined}
+                    />
+                  </span>
                   <div className="mt-3 flex items-center gap-2">
                     <PriorityDot priority={task.priority} className="mr-1" />
                     <WhoBadge assignee={task.assignee} assignees={task.assignees} open={task.status !== "done"} />
@@ -202,7 +211,7 @@ export function TaskBoardView({ tasks, projectName, spaceName, itemsByTask, docT
                       </span>
                     ) : null}
                   </div>
-                </Link>
+                </div>
               ))}
               {columnTasks.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
