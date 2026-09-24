@@ -1376,6 +1376,365 @@ export async function deleteList(id: string): Promise<{ error?: string }> {
   return {};
 }
 
+/** Duplicate a list with all its tasks (and their subtasks). */
+export async function duplicateList(id: string): Promise<{ id?: string; error?: string }> {
+  if (!isDbConfigured) {
+    const list = memory.lists.find((l) => l.id === id);
+    if (!list) return { error: "Not found." };
+    const newListId = newId("list");
+    memory.lists.push({
+      id: newListId,
+      name: `${list.name} (copy)`,
+      folderId: list.folderId,
+      projectId: list.projectId,
+      spaceId: list.spaceId,
+    });
+    for (const t of memory.tasks.filter((t) => t.listId === id)) {
+      await copyTaskWithItems(
+        null,
+        {
+          title: t.title,
+          status: t.status,
+          priority: t.priority,
+          assignees: t.assignees ?? (t.assignee ? [t.assignee] : []),
+          description: t.description,
+          dueDate: t.dueDate,
+          startDate: t.startDate,
+          tags: t.tags,
+          spaceId: t.spaceId,
+          projectId: t.projectId,
+          listId: newListId,
+        },
+        memory.taskItems
+          .filter((i) => i.taskId === t.id)
+          .map((i) => ({
+            id: i.id,
+            title: i.title,
+            done: i.done,
+            parentId: i.parentId,
+            assignee: i.assignee,
+            dueDate: i.dueDate,
+            priority: i.priority,
+          }))
+      );
+    }
+    revalidatePath("/projects");
+    revalidatePath("/tasks");
+    return { id: newListId };
+  }
+  const { client } = await requireClient();
+  const { data: listRows } = await client.from("lists").select("*").eq("id", id).limit(1);
+  const list = (listRows?.[0] ?? null) as Record<string, unknown> | null;
+  if (!list) return { error: "Not found." };
+  const newListId = newId("list");
+  const { error: listError } = await client.from("lists").insert({
+    id: newListId,
+    name: `${String(list.name)} (copy)`,
+    folder_id: (list.folder_id as string | null) ?? null,
+    project_id: list.project_id,
+    space_id: list.space_id,
+  });
+  if (listError) return { error: listError.message };
+  const { data: taskRows } = await client.from("tasks").select("*").eq("list_id", id);
+  for (const row of (taskRows ?? []) as Record<string, unknown>[]) {
+    const taskId = String(row.id);
+    const { data: itemRows } = await client.from("task_items").select("*").eq("task_id", taskId);
+    const tags = Array.isArray(row.tags) ? (row.tags as string[]) : [];
+    const assignees = Array.isArray(row.assignees) ? (row.assignees as string[]) : [];
+    await copyTaskWithItems(
+      client,
+      {
+        title: String(row.title),
+        status: (row.status ?? "todo") as TaskStatus,
+        priority: (row.priority as TaskPriority | null) ?? undefined,
+        assignees,
+        description: (row.description as string | null) ?? undefined,
+        dueDate: (row.due_date as string | null) ?? undefined,
+        startDate: (row.start_date as string | null) ?? undefined,
+        tags,
+        spaceId: String(row.space_id),
+        projectId: (row.project_id as string | null) ?? undefined,
+        listId: newListId,
+      },
+      ((itemRows ?? []) as Record<string, unknown>[]).map((i) => ({
+        id: String(i.id),
+        title: String(i.title),
+        done: Boolean(i.done),
+        parentId: (i.parent_id as string | null) ?? undefined,
+        assignee: (i.assignee as string | null) ?? undefined,
+        dueDate: (i.due_date as string | null) ?? undefined,
+        priority: (i.priority as TaskPriority | null) ?? undefined,
+      }))
+    );
+  }
+  revalidatePath("/projects");
+  revalidatePath("/tasks");
+  return { id: newListId };
+}
+
+/** Duplicate a folder with all its lists, tasks and subtasks. */
+export async function duplicateFolder(id: string): Promise<{ id?: string; error?: string }> {
+  if (!isDbConfigured) {
+    const folder = memory.folders.find((f) => f.id === id);
+    if (!folder) return { error: "Not found." };
+    const newFolderId = newId("folder");
+    memory.folders.push({
+      id: newFolderId,
+      name: `${folder.name} (copy)`,
+      projectId: folder.projectId,
+      spaceId: folder.spaceId,
+    });
+    const lists = memory.lists.filter((l) => l.folderId === id);
+    const listMap = new Map<string, string>();
+    for (const list of lists) {
+      const newListId = newId("list");
+      listMap.set(list.id, newListId);
+      memory.lists.push({
+        id: newListId,
+        name: list.name,
+        folderId: newFolderId,
+        projectId: list.projectId,
+        spaceId: list.spaceId,
+      });
+    }
+    for (const t of memory.tasks.filter((t) => t.listId && listMap.has(t.listId))) {
+      await copyTaskWithItems(
+        null,
+        {
+          title: t.title,
+          status: t.status,
+          priority: t.priority,
+          assignees: t.assignees ?? (t.assignee ? [t.assignee] : []),
+          description: t.description,
+          dueDate: t.dueDate,
+          startDate: t.startDate,
+          tags: t.tags,
+          spaceId: t.spaceId,
+          projectId: t.projectId,
+          listId: listMap.get(t.listId!)!,
+        },
+        memory.taskItems
+          .filter((i) => i.taskId === t.id)
+          .map((i) => ({
+            id: i.id,
+            title: i.title,
+            done: i.done,
+            parentId: i.parentId,
+            assignee: i.assignee,
+            dueDate: i.dueDate,
+            priority: i.priority,
+          }))
+      );
+    }
+    revalidatePath("/projects");
+    revalidatePath("/tasks");
+    return { id: newFolderId };
+  }
+  const { client } = await requireClient();
+  const { data: folderRows } = await client.from("folders").select("*").eq("id", id).limit(1);
+  const folder = (folderRows?.[0] ?? null) as Record<string, unknown> | null;
+  if (!folder) return { error: "Not found." };
+  const newFolderId = newId("folder");
+  const { error: folderError } = await client.from("folders").insert({
+    id: newFolderId,
+    name: `${String(folder.name)} (copy)`,
+    project_id: folder.project_id,
+    space_id: folder.space_id,
+  });
+  if (folderError) return { error: folderError.message };
+  const { data: listRows } = await client.from("lists").select("id").eq("folder_id", id);
+  for (const listRow of (listRows ?? []) as { id: string }[]) {
+    const dupe = await duplicateList(String(listRow.id));
+    if (dupe.error || !dupe.id) return { error: dupe.error ?? "Copy failed." };
+    await client.from("lists").update({ folder_id: newFolderId }).eq("id", dupe.id);
+  }
+  revalidatePath("/projects");
+  revalidatePath("/tasks");
+  return { id: newFolderId };
+}
+
+/** Move a list into another folder (or out to the project root). Same project only. */
+export async function moveList(id: string, folderId: string | null): Promise<{ error?: string }> {
+  if (!isDbConfigured) {
+    const list = memory.lists.find((l) => l.id === id);
+    if (!list) return { error: "Not found." };
+    if (folderId) {
+      const folder = memory.folders.find((f) => f.id === folderId);
+      if (!folder || folder.projectId !== list.projectId) {
+        return { error: "Lists can only move within the same project." };
+      }
+    }
+    list.folderId = folderId || undefined;
+    revalidatePath("/projects");
+    return {};
+  }
+  const { client } = await requireClient();
+  const { data: listRows } = await client.from("lists").select("id,project_id").eq("id", id).limit(1);
+  const listRow = listRows?.[0] as { id: string; project_id: string } | undefined;
+  if (!listRow) return { error: "Not found." };
+  if (folderId) {
+    const { data: folderRows } = await client
+      .from("folders")
+      .select("id,project_id")
+      .eq("id", folderId)
+      .limit(1);
+    const folder = folderRows?.[0] as { id: string; project_id: string } | undefined;
+    if (!folder || folder.project_id !== listRow.project_id) {
+      return { error: "Lists can only move within the same project." };
+    }
+  }
+  const { error } = await client.from("lists").update({ folder_id: folderId }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/projects");
+  return {};
+}
+
+/** Move a folder (with its lists and tasks) into another project. */
+export async function moveFolder(id: string, projectId: string): Promise<{ error?: string }> {
+  if (!isDbConfigured) {
+    const folder = memory.folders.find((f) => f.id === id);
+    const project = memory.projects.find((p) => p.id === projectId);
+    if (!folder || !project) return { error: "Not found." };
+    folder.projectId = projectId;
+    folder.spaceId = project.spaceId;
+    for (const list of memory.lists) {
+      if (list.folderId !== id) continue;
+      list.projectId = projectId;
+      list.spaceId = project.spaceId;
+    }
+    for (const task of memory.tasks) {
+      if (!task.listId) continue;
+      const list = memory.lists.find((l) => l.id === task.listId);
+      if (list && list.folderId === id) {
+        task.projectId = projectId;
+        task.spaceId = project.spaceId;
+      }
+    }
+    revalidatePath("/projects");
+    return {};
+  }
+  const { client } = await requireClient();
+  const { data: projectRows } = await client
+    .from("projects")
+    .select("id,space_id")
+    .eq("id", projectId)
+    .limit(1);
+  const project = projectRows?.[0] as { id: string; space_id: string } | undefined;
+  if (!project) return { error: "Not found." };
+  const { data: listRows } = await client.from("lists").select("id").eq("folder_id", id);
+  const listIds = (listRows ?? []).map((r) => String((r as { id: string }).id));
+  const { error } = await client
+    .from("folders")
+    .update({ project_id: projectId, space_id: project.space_id })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  if (listIds.length > 0) {
+    await client
+      .from("lists")
+      .update({ project_id: projectId, space_id: project.space_id })
+      .in("id", listIds);
+    await client
+      .from("tasks")
+      .update({ project_id: projectId, space_id: project.space_id })
+      .in("list_id", listIds);
+  }
+  revalidatePath("/projects");
+  return {};
+}
+
+type TaskCopy = {
+  title: string;
+  status: TaskStatus;
+  priority?: TaskPriority;
+  assignees?: string[];
+  description?: string;
+  dueDate?: string;
+  startDate?: string;
+  tags?: string[];
+};
+
+type ItemCopy = {
+  id: string;
+  title: string;
+  done: boolean;
+  parentId?: string;
+  assignee?: string;
+  dueDate?: string;
+  priority?: TaskPriority;
+};
+
+/** Deep-copy one task (with its subtask tree) into a space/project/list. */
+async function copyTaskWithItems(
+  client: SupabaseClient | null,
+  task: TaskCopy & { spaceId: string; projectId?: string; listId?: string },
+  items: ItemCopy[]
+): Promise<string> {
+  const taskId = newId("task");
+  const assignees = task.assignees ?? [];
+  const idMap = new Map(items.map((item) => [item.id, newId("item")]));
+  if (client) {
+    await client.from("tasks").insert({
+      id: taskId,
+      title: task.title,
+      space_id: task.spaceId,
+      project_id: task.projectId || null,
+      list_id: task.listId || null,
+      status: task.status,
+      priority: task.priority ?? null,
+      assignee: assignees[0] ?? null,
+      assignees,
+      description: task.description || null,
+      due_date: task.dueDate || null,
+      start_date: task.startDate || null,
+      tags: task.tags ?? [],
+    });
+    if (items.length > 0) {
+      await client.from("task_items").insert(
+        items.map((item, i) => ({
+          id: idMap.get(item.id)!,
+          task_id: taskId,
+          parent_id: item.parentId ? (idMap.get(item.parentId) ?? null) : null,
+          title: item.title,
+          done: item.done,
+          assignee: item.assignee ?? null,
+          due_date: item.dueDate || null,
+          priority: item.priority ?? null,
+          position: i,
+        }))
+      );
+    }
+  } else {
+    memory.tasks.push({
+      id: taskId,
+      title: task.title,
+      spaceId: task.spaceId,
+      projectId: task.projectId,
+      listId: task.listId,
+      status: task.status,
+      priority: task.priority,
+      assignee: assignees[0],
+      assignees: assignees.length > 0 ? assignees : undefined,
+      description: task.description,
+      dueDate: task.dueDate,
+      startDate: task.startDate,
+      tags: task.tags,
+    });
+    for (const item of items) {
+      memory.taskItems.push({
+        id: idMap.get(item.id)!,
+        taskId,
+        parentId: item.parentId ? idMap.get(item.parentId) : undefined,
+        title: item.title,
+        done: item.done,
+        assignee: item.assignee,
+        dueDate: item.dueDate,
+        priority: item.priority,
+      });
+    }
+  }
+  return taskId;
+}
+
 export async function updateBlock(
   documentId: string,
   blockId: string,

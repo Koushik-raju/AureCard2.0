@@ -25,14 +25,23 @@ export function Dropdown({
   children,
   align = "right",
   onOpenChange,
+  open: controlledOpen,
 }: {
   trigger: React.ReactNode;
   children: React.ReactNode;
   align?: "left" | "right";
   onOpenChange?: (open: boolean) => void;
+  /** Controlled mode (for context menus); omit for the default toggle. */
+  open?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
   const id = useId();
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (v: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof v === "function" ? v(open) : v;
+    if (controlledOpen === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const triggerRef = useRef<HTMLSpanElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const close = () => setOpen(false);

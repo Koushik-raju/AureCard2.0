@@ -1,21 +1,44 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  ArrowRightLeft,
+  Check,
   ChevronDown,
   ChevronRight,
+  Copy,
   Folder as FolderIcon,
   Layers,
+  Link2,
   List as ListIcon,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Plus,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PREF_KEYS, readJson, writeJson } from "@/lib/prefs";
-import { createFolder, createList } from "@/lib/mutations";
+import {
+  createFolder,
+  createList,
+  deleteFolder,
+  deleteList,
+  deleteProject,
+  deleteSpace,
+  duplicateFolder,
+  duplicateList,
+  moveFolder,
+  moveList,
+  renameFolder,
+  renameList,
+  updateProject,
+  updateSpace,
+} from "@/lib/mutations";
+import { Dropdown, MenuItem } from "@/components/create/entity-menu";
 import type { Folder, List, Project, Space } from "@/lib/types";
 
 type TreeTask = {
@@ -43,6 +66,20 @@ function loadExpanded(): Record<string, boolean> {
   }
 }
 
+const PANEL_MIN = 180;
+const PANEL_MAX = 420;
+const PANEL_DEFAULT = 240;
+
+function loadPanelWidth(): number {
+  try {
+    const raw = readJson<{ width?: number }>(PREF_KEYS.spaceTreeWidth, {});
+    const w = typeof raw.width === "number" ? raw.width : PANEL_DEFAULT;
+    return Math.min(PANEL_MAX, Math.max(PANEL_MIN, w));
+  } catch {
+    return PANEL_DEFAULT;
+  }
+}
+
 function taskInFolder(
   t: TreeTask,
   folderId: string,
@@ -52,6 +89,279 @@ function taskInFolder(
   return listById.get(t.listId)?.folderId === folderId;
 }
 
+type MenuTarget =
+  | { kind: "space"; id: string; name: string }
+  | { kind: "project"; id: string; name: string; spaceId: string }
+  | { kind: "folder"; id: string; name: string; projectId: string; spaceId: string }
+  | { kind: "list"; id: string; name: string; projectId: string; spaceId: string; folderId?: string };
+
+function targetHref(target: MenuTarget): string {
+  switch (target.kind) {
+    case "space":
+      return `/spaces/${target.id}`;
+    case "project":
+      return `/projects/${target.id}`;
+    case "folder":
+      return `/tasks?folder=${target.id}`;
+    case "list":
+      return `/tasks?list=${target.id}`;
+  }
+}
+
+function TreeNodeMenu({
+  target,
+  projects,
+  folders,
+  open,
+  onOpenChange,
+  onChanged,
+}: {
+  target: MenuTarget;
+  projects: Project[];
+  folders: Folder[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onChanged: () => void;
+}) {
+  const router = useRouter();
+  const [mode, setMode] = useState<null | "rename" | "move" | "confirm">(null);
+  const [name, setName] = useState("");
+  const [moveTo, setMoveTo] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [busy, startTransition] = useTransition();
+
+  function run(promise: Promise<{ error?: string }>, after?: () => void) {
+    startTransition(async () => {
+      const result = await promise;
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setMode(null);
+      after?.();
+      onChanged();
+    });
+  }
+
+  const [error, setError] = useState<string | null>(null);
+
+  function openMode(next: "rename" | "move" | "confirm") {
+    setName(target.name);
+    setMoveTo("");
+    setError(null);
+    setCopied(false);
+    setMode(next);
+  }
+
+  function saveRename() {
+    const trimmed = name.trim();
+    if (!trimmed || busy) return;
+    if (target.kind === "space") run(updateSpace({ id: target.id, name: trimmed }));
+    else if (target.kind === "project") run(updateProject({ id: target.id, name: trimmed }));
+    else if (target.kind === "folder") run(renameFolder(target.id, trimmed));
+    else run(renameList(target.id, trimmed));
+  }
+
+  function confirmDelete() {
+    if (target.kind === "space") run(deleteSpace(target.id));
+    else if (target.kind === "project") run(deleteProject(target.id));
+    else if (target.kind === "folder") run(deleteFolder(target.id));
+    else run(deleteList(target.id));
+  }
+
+  function doDuplicate() {
+    if (target.kind === "folder") run(duplicateFolder(target.id));
+    else if (target.kind === "list") run(duplicateList(target.id));
+  }
+
+  function doMove() {
+    if (target.kind === "list") run(moveList(target.id, moveTo || null));
+    else if (target.kind === "folder" && moveTo) run(moveFolder(target.id, moveTo));
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${targetHref(target)}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError("Couldn't copy link.");
+    }
+  }
+
+  const moveOptions =
+    target.kind === "list"
+      ? folders
+          .filter((f) => f.projectId === target.projectId && f.id !== target.folderId)
+          .map((f) => ({ value: f.id, label: f.name }))
+      : target.kind === "folder"
+        ? projects
+            .filter((p) => p.spaceId === target.spaceId && p.id !== target.projectId)
+            .map((p) => ({ value: p.id, label: p.name }))
+        : [];
+  const destructiveHint =
+    target.kind === "space"
+      ? "Deletes the space with all projects, folders, lists and tasks inside. This can't be undone."
+      : target.kind === "project"
+        ? "Deletes the project with its folders, lists and tasks. This can't be undone."
+        : target.kind === "folder"
+          ? "Deletes the folder with its lists and tasks. This can't be undone."
+          : "Deletes the list with its tasks. This can't be undone.";
+
+  return (
+    <Dropdown
+      align="left"
+      open={open}
+      onOpenChange={(o) => {
+        onOpenChange(o);
+        if (!o) {
+          setMode(null);
+          setCopied(false);
+        }
+      }}
+      trigger={
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label={`Actions for ${target.name}`}
+          title="Actions"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenChange(!open);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              onOpenChange(!open);
+            }
+          }}
+          className="rounded p-1 text-muted-foreground opacity-0 transition-all hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+        >
+          <MoreHorizontal className="size-3.5" />
+        </span>
+      }
+    >
+      {mode === null ? (
+        <>
+          <MenuItem icon={<Pencil className="size-4" />} closeOnClick={false} onClick={() => openMode("rename")}>
+            Rename
+          </MenuItem>
+          <MenuItem
+            icon={copied ? <Check className="size-4" /> : <Link2 className="size-4" />}
+            closeOnClick={false}
+            onClick={() => void copyLink()}
+          >
+            {copied ? "Copied!" : "Copy link"}
+          </MenuItem>
+          {target.kind === "list" ? (
+            <MenuItem
+              icon={<Plus className="size-4" />}
+              onClick={() => router.push(`/tasks?list=${target.id}`)}
+            >
+              New task here
+            </MenuItem>
+          ) : null}
+          {target.kind === "folder" || target.kind === "list" ? (
+            <MenuItem icon={<Copy className="size-4" />} closeOnClick={false} onClick={doDuplicate}>
+              Duplicate
+            </MenuItem>
+          ) : null}
+          {moveOptions.length > 0 ? (
+            <MenuItem icon={<ArrowRightLeft className="size-4" />} closeOnClick={false} onClick={() => openMode("move")}>
+              Move to…
+            </MenuItem>
+          ) : null}
+          <MenuItem icon={<Trash2 className="size-4" />} danger closeOnClick={false} onClick={() => openMode("confirm")}>
+            Delete
+          </MenuItem>
+        </>
+      ) : null}
+      {mode === "rename" ? (
+        <form
+          className="flex items-center gap-1 p-0.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveRename();
+          }}
+        >
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+            maxLength={80}
+            aria-label="New name"
+            className="h-8 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-[13px] outline-none focus-visible:border-ring"
+          />
+          <button
+            type="submit"
+            disabled={busy || !name.trim()}
+            className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
+          >
+            Save
+          </button>
+        </form>
+      ) : null}
+      {mode === "move" ? (
+        <div className="flex flex-col gap-1 p-0.5">
+          {target.kind === "list" ? (
+            <button
+              type="button"
+              onClick={() => {
+                setMoveTo("");
+                doMove();
+              }}
+              className="rounded-md px-2 py-1 text-left text-xs hover:bg-muted"
+            >
+              Project root (no folder)
+            </button>
+          ) : null}
+          {moveOptions.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => {
+                setMoveTo(o.value);
+                if (target.kind === "list") run(moveList(target.id, o.value));
+                else run(moveFolder(target.id, o.value));
+              }}
+              className="rounded-md px-2 py-1 text-left text-xs hover:bg-muted"
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {mode === "confirm" ? (
+        <div className="p-1.5">
+          <p className="px-1 text-xs leading-relaxed text-muted-foreground">{destructiveHint}</p>
+          {error ? <p className="px-1 pt-1 text-xs text-destructive">{error}</p> : null}
+          <div className="mt-2 flex justify-end gap-1">
+            <button
+              type="button"
+              onClick={() => setMode(null)}
+              className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+            >
+              Keep
+            </button>
+            <button
+              type="button"
+              onClick={confirmDelete}
+              disabled={busy}
+              className="rounded-md bg-destructive px-2 py-1 text-xs font-medium text-destructive-foreground disabled:opacity-50"
+            >
+              {busy ? "Deleting…" : "Delete"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {mode !== "confirm" && error ? (
+        <p className="px-2 py-1 text-xs text-destructive">{error}</p>
+      ) : null}
+    </Dropdown>
+  );
+}
+
 export function SpaceTree() {
   const router = useRouter();
   const pathname = usePathname();
@@ -59,11 +369,14 @@ export function SpaceTree() {
   const [data, setData] = useState<TreeData | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>(loadExpanded);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [panelWidth, setPanelWidth] = useState<number>(() => loadPanelWidth());
   const [addingFolder, setAddingFolder] = useState<string | null>(null);
   const [addingList, setAddingList] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const fetchTree = useCallback(() => {
     fetch("/api/search")
@@ -188,11 +501,44 @@ export function SpaceTree() {
       </span>
     ) : null;
 
+  function onResizeStart(e: React.PointerEvent) {
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startWidth: panelWidth };
+    const move = (ev: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      const next = Math.min(
+        PANEL_MAX,
+        Math.max(PANEL_MIN, drag.startWidth + (ev.clientX - drag.startX))
+      );
+      drag.startWidth = next;
+      drag.startX = ev.clientX;
+      setPanelWidth(next);
+      writeJson(PREF_KEYS.spaceTreeWidth, { width: next });
+    };
+    const up = () => {
+      dragRef.current = null;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
   return (
     <aside
       aria-label="Spaces"
-      className="hidden w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-card/40 lg:flex"
+      style={{ width: panelWidth }}
+      className="sticky top-0 hidden h-screen shrink-0 flex-col overflow-y-auto border-r border-border bg-card/40 lg:flex relative"
     >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize spaces panel"
+        title="Drag to resize"
+        onPointerDown={onResizeStart}
+        className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize touch-none transition-colors hover:bg-primary/40 focus-visible:outline-none focus-visible:bg-primary/40"
+      />
       <div className="flex items-center justify-between px-3 pb-1 pt-3">
         <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           Spaces
@@ -226,7 +572,13 @@ export function SpaceTree() {
               const sOpen = expanded[`s:${space.id}`] ?? true;
               return (
                 <li key={space.id}>
-                  <div className="group flex items-center gap-1 rounded-md hover:bg-muted">
+                  <div
+                    className="group flex items-center gap-1 rounded-md hover:bg-muted"
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setMenuFor(`s:${space.id}`);
+                    }}
+                  >
                     <button
                       type="button"
                       onClick={() => toggle(`s:${space.id}`)}
@@ -243,6 +595,14 @@ export function SpaceTree() {
                       {space.name}
                     </Link>
                     {countBadge(openCount)}
+                    <TreeNodeMenu
+                      target={{ kind: "space", id: space.id, name: space.name }}
+                      projects={data?.projects ?? []}
+                      folders={data?.folders ?? []}
+                      open={menuFor === `s:${space.id}`}
+                      onOpenChange={(o) => setMenuFor(o ? `s:${space.id}` : null)}
+                      onChanged={refresh}
+                    />
                   </div>
                   {sOpen ? (
                     <ul className="ml-4 space-y-0.5 border-l border-border/60 pl-1">
@@ -251,7 +611,13 @@ export function SpaceTree() {
                         const pOpen = expanded[pKey] ?? false;
                         return (
                           <li key={project.id}>
-                            <div className="group flex items-center gap-1 rounded-md hover:bg-muted">
+                            <div
+                              className="group flex items-center gap-1 rounded-md hover:bg-muted"
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                setMenuFor(`p:${project.id}`);
+                              }}
+                            >
                               <button
                                 type="button"
                                 onClick={() => toggle(pKey)}
@@ -268,6 +634,14 @@ export function SpaceTree() {
                                 {project.name}
                               </Link>
                               {countBadge(pCount)}
+                              <TreeNodeMenu
+                                target={{ kind: "project", id: project.id, name: project.name, spaceId: project.spaceId }}
+                                projects={data?.projects ?? []}
+                                folders={data?.folders ?? []}
+                                open={menuFor === `p:${project.id}`}
+                                onOpenChange={(o) => setMenuFor(o ? `p:${project.id}` : null)}
+                                onChanged={refresh}
+                              />
                               <button
                                 type="button"
                                 onClick={() => {
@@ -318,6 +692,10 @@ export function SpaceTree() {
                                           "group flex items-center gap-1 rounded-md hover:bg-muted",
                                           isActive && "bg-muted"
                                         )}
+                                        onContextMenu={(e) => {
+                                          e.preventDefault();
+                                          setMenuFor(`f:${folder.id}`);
+                                        }}
                                       >
                                         <button
                                           type="button"
@@ -342,6 +720,14 @@ export function SpaceTree() {
                                           </span>
                                         </Link>
                                         {countBadge(fCount)}
+                                        <TreeNodeMenu
+                                          target={{ kind: "folder", id: folder.id, name: folder.name, projectId: project.id, spaceId: project.spaceId }}
+                                          projects={data?.projects ?? []}
+                                          folders={data?.folders ?? []}
+                                          open={menuFor === `f:${folder.id}`}
+                                          onOpenChange={(o) => setMenuFor(o ? `f:${folder.id}` : null)}
+                                          onChanged={refresh}
+                                        />
                                       </div>
                                       {fOpen ? (
                                         <ul className="ml-4 space-y-px border-l border-border/60 pl-1">
@@ -349,18 +735,37 @@ export function SpaceTree() {
                                             const lActive = activeList === list.id && showTasks;
                                             return (
                                               <li key={list.id}>
-                                                <Link
-                                                  href={`/tasks?list=${list.id}`}
-                                                  aria-current={lActive ? "page" : undefined}
+                                                <div
                                                   className={cn(
-                                                    "flex items-center gap-1.5 rounded-md px-1 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                                    lActive && "bg-muted font-medium text-foreground"
+                                                    "group flex items-center gap-1 rounded-md hover:bg-muted",
+                                                    lActive && "bg-muted"
                                                   )}
+                                                  onContextMenu={(e) => {
+                                                    e.preventDefault();
+                                                    setMenuFor(`l:${list.id}`);
+                                                  }}
                                                 >
-                                                  <ListIcon className="size-3.5 shrink-0" />
-                                                  <span className="min-w-0 flex-1 truncate">{list.name}</span>
-                                                  {countBadge(openByList.get(list.id) ?? 0)}
-                                                </Link>
+                                                  <Link
+                                                    href={`/tasks?list=${list.id}`}
+                                                    aria-current={lActive ? "page" : undefined}
+                                                    className={cn(
+                                                      "flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 py-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                                      lActive && "font-medium text-foreground"
+                                                    )}
+                                                  >
+                                                    <ListIcon className="size-3.5 shrink-0" />
+                                                    <span className="min-w-0 flex-1 truncate">{list.name}</span>
+                                                    {countBadge(openByList.get(list.id) ?? 0)}
+                                                  </Link>
+                                                  <TreeNodeMenu
+                                                    target={{ kind: "list", id: list.id, name: list.name, projectId: project.id, spaceId: project.spaceId, folderId: folder.id }}
+                                                    projects={data?.projects ?? []}
+                                                    folders={data?.folders ?? []}
+                                                    open={menuFor === `l:${list.id}`}
+                                                    onOpenChange={(o) => setMenuFor(o ? `l:${list.id}` : null)}
+                                                    onChanged={refresh}
+                                                  />
+                                                </div>
                                               </li>
                                             );
                                           })}
@@ -410,18 +815,37 @@ export function SpaceTree() {
                                   const lActive = activeList === list.id && showTasks;
                                   return (
                                     <li key={list.id}>
-                                      <Link
-                                        href={`/tasks?list=${list.id}`}
-                                        aria-current={lActive ? "page" : undefined}
+                                      <div
                                         className={cn(
-                                          "flex items-center gap-1.5 rounded-md px-1 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                          lActive && "bg-muted font-medium text-foreground"
+                                          "group flex items-center gap-1 rounded-md hover:bg-muted",
+                                          lActive && "bg-muted"
                                         )}
+                                        onContextMenu={(e) => {
+                                          e.preventDefault();
+                                          setMenuFor(`l:${list.id}`);
+                                        }}
                                       >
-                                        <ListIcon className="size-3.5 shrink-0" />
-                                        <span className="min-w-0 flex-1 truncate">{list.name}</span>
-                                        {countBadge(openByList.get(list.id) ?? 0)}
-                                      </Link>
+                                        <Link
+                                          href={`/tasks?list=${list.id}`}
+                                          aria-current={lActive ? "page" : undefined}
+                                          className={cn(
+                                            "flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 py-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                            lActive && "font-medium text-foreground"
+                                          )}
+                                        >
+                                          <ListIcon className="size-3.5 shrink-0" />
+                                          <span className="min-w-0 flex-1 truncate">{list.name}</span>
+                                          {countBadge(openByList.get(list.id) ?? 0)}
+                                        </Link>
+                                        <TreeNodeMenu
+                                          target={{ kind: "list", id: list.id, name: list.name, projectId: project.id, spaceId: project.spaceId }}
+                                          projects={data?.projects ?? []}
+                                          folders={data?.folders ?? []}
+                                          open={menuFor === `l:${list.id}`}
+                                          onOpenChange={(o) => setMenuFor(o ? `l:${list.id}` : null)}
+                                          onChanged={refresh}
+                                        />
+                                      </div>
                                     </li>
                                   );
                                 })}

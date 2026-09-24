@@ -15,6 +15,7 @@ export const PREF_KEYS = {
   inboxSnapshot: "atlas:inbox-snapshot",
   dmVisits: "atlas:dm-visits",
   spaceTree: "atlas:space-tree",
+  spaceTreeWidth: "atlas:space-tree-width",
   notifications: "atlas:notification-prefs",
 } as const;
 
