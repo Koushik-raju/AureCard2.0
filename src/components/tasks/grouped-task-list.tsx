@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { CalendarDays, Check, ChevronDown, Flag, ListTodo, MessageSquare, Paperclip, Pencil, Plus, UserRound, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AssigneeEditor, CellInput, CellShell } from "./inline-cells";
-import { AssigneeAvatar, AssigneeStack, PriorityFlag, statusHue } from "./hues";
+import { AssigneeAvatar, AssigneeStack, PriorityFlag, TagPill, statusHue } from "./hues";
 import { formatAssignees, getTaskAssignees, parseAssignees } from "@/lib/assignees";
 import type { Task, TaskItem, TaskPriority, TaskStatus } from "@/lib/types";
 import { getStatusLabel } from "@/lib/data";
@@ -21,7 +21,7 @@ const PRIORITIES: TaskPriority[] = ["high", "medium", "low"];
 const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
 type SortKey = "manual" | "due" | "priority" | "title";
-type CellKind = "status" | "assignee" | "due" | "priority" | "tags";
+type CellKind = "status" | "assignee" | "due" | "priority";
 
 type GroupedTaskListProps = {
   tasks: Task[];
@@ -279,10 +279,10 @@ export function GroupedTaskList({
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-border">
-        <div className="min-w-[800px]">
+        <div className="min-w-[660px]">
           <div
             role="row"
-            className="grid grid-cols-[20px_32px_minmax(200px,1fr)_128px_110px_104px_150px] items-center gap-2 border-b border-border bg-muted/50 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
+            className="grid grid-cols-[20px_32px_minmax(200px,1fr)_128px_110px_104px] items-center gap-2 border-b border-border bg-muted/50 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
           >
             <span aria-hidden="true" />
             <span aria-hidden="true" />
@@ -290,7 +290,6 @@ export function GroupedTaskList({
             <span>Assignee</span>
             <span>Due</span>
             <span>Priority</span>
-            <span>Tags</span>
           </div>
 
           {groups.map(({ status, items }) => {
@@ -582,7 +581,7 @@ function TaskRow({
     >
       <div
         role="row"
-        className="grid grid-cols-[20px_32px_minmax(200px,1fr)_128px_110px_104px_150px] items-center gap-2 px-3 py-2"
+        className="grid grid-cols-[20px_32px_minmax(200px,1fr)_128px_110px_104px] items-center gap-2 px-3 py-2"
       >
       <button
         type="button"
@@ -659,7 +658,17 @@ function TaskRow({
                 {task.title}
               </span>
             )}
-            <span className="flex min-w-0 max-w-[42%] shrink-0 items-center gap-1.5 overflow-hidden text-[10px] font-normal text-muted-foreground/70">
+            {task.tags && task.tags.length > 0 ? (
+              <span className="flex shrink-0 items-center gap-1" title={task.tags.join(", ")}>
+                {task.tags.slice(0, 3).map((t) => (
+                  <TagPill key={t} tag={t} />
+                ))}
+                {task.tags.length > 3 ? (
+                  <span className="shrink-0 text-[10px] text-muted-foreground">+{task.tags.length - 3}</span>
+                ) : null}
+              </span>
+            ) : null}
+            <span className="flex min-w-0 max-w-[30%] shrink-0 items-center gap-1.5 overflow-hidden text-[10px] font-normal text-muted-foreground/70">
               <span className="min-w-0 flex-1 truncate">
                 {[projectName, spaceName].filter(Boolean).join(" · ")}
               </span>
@@ -817,47 +826,6 @@ function TaskRow({
         }
       />
 
-      <CellShell
-        open={openCell === "tags"}
-        onClose={onCloseCell}
-        wide
-        display={
-          <button
-            type="button"
-            onClick={() => onOpenCell("tags", (task.tags ?? []).join(", "))}
-            disabled={disabled}
-            className="flex max-w-full items-center gap-1 rounded-md px-1 py-1 text-left hover:bg-muted"
-          >
-            {task.tags && task.tags.length > 0 ? (
-              <>
-                {task.tags.slice(0, 2).map((t) => (
-                  <span key={t} className="truncate rounded-full bg-muted px-1.5 py-0.5 text-[11px]">
-                    {t}
-                  </span>
-                ))}
-                {task.tags.length > 2 ? (
-                  <span className="shrink-0 text-[11px] text-muted-foreground">+{task.tags.length - 2}</span>
-                ) : null}
-              </>
-            ) : (
-              <span className="text-[13px] text-muted-foreground/60">—</span>
-            )}
-          </button>
-        }
-        editor={
-          <CellInput
-            value={draftCell}
-            onChange={onDraftCell}
-            placeholder="Bug, Feature, …"
-            onSave={() =>
-              onCommit({
-                tags: draftCell.split(",").map((t) => t.trim()).filter(Boolean).slice(0, 20),
-              })
-            }
-            onCancel={onCloseCell}
-          />
-        }
-      />
       </div>
 
       <span

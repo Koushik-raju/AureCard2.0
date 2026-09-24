@@ -20,6 +20,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/app/actions/auth";
+import { CreateMenu } from "@/components/layout/create-menu";
 import { PREF_KEYS, readJson } from "@/lib/prefs";
 import { inboxUnreadCount } from "@/lib/inbox-count";
 
@@ -108,6 +109,14 @@ export function AppSidebar({ userEmail }: { userEmail: string | null }) {  const
                 </div>
               </Link>
             </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <span className="flex items-center gap-1 px-1">
+              <CreateMenu />
+              <span className="text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+                Create
+              </span>
+            </span>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>

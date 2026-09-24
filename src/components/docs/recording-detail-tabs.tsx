@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, Copy, FileText, ListTodo, Plus, Sparkles } from "lucide-react";
@@ -313,12 +313,36 @@ export function RecordingDetailTabs({
       attachments.map((a) => a.mime)
     )
   ];
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // No word timings exist, so seeks are proportional estimates by text length.
+  const seekRatios = useMemo(() => {
+    const lens = transcriptLines.map((b) => b.text.length);
+    const total = lens.reduce((a, b) => a + b, 0);
+    if (!total) return [];
+    let acc = 0;
+    return lens.map((len) => {
+      const ratio = acc / total;
+      acc += len;
+      return ratio;
+    });
+  }, [transcriptLines]);
+
+  function seekToLine(index: number) {
+    const el = audioRef.current;
+    const duration = document.durationSecs;
+    if (!el || !duration || seekRatios[index] === undefined) return;
+    el.currentTime = Math.min(
+      Math.max(0, seekRatios[index] * duration),
+      Math.max(0, duration - 1)
+    );
+    void el.play().catch(() => {});
+  }
 
   return (
     <div>
       {audioFile ? (
         <div className="sticky top-12 z-20 -mx-4 border-b border-border bg-background/95 px-4 py-2 backdrop-blur sm:mx-0 sm:rounded-xl sm:border sm:px-3">
-          <audio src={audioFile.data} controls className="w-full" aria-label="Recording audio player" />
+          <audio ref={audioRef} src={audioFile.data} controls className="w-full" aria-label="Recording audio player" />
         </div>
       ) : null}
 
@@ -372,7 +396,9 @@ export function RecordingDetailTabs({
             ) : (
               <>
                 <ol className="space-y-3">
-                  {transcriptLines.map((line, i) => (
+                  {transcriptLines.map((line, i) => {
+                    const seekable = !!audioFile && !!document.durationSecs;
+                    return (
                     <li
                       key={line.id}
                       className="rounded-xl border border-border bg-card p-4"
@@ -380,9 +406,21 @@ export function RecordingDetailTabs({
                       <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                         Line {i + 1}
                       </p>
-                      <p className="mt-1 text-[15px] leading-relaxed">{line.text}</p>
+                      {seekable ? (
+                        <button
+                          type="button"
+                          onClick={() => seekToLine(i)}
+                          title="Jump audio here (approximate position)"
+                          className="mt-1 block w-full rounded text-left text-[15px] leading-relaxed transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {line.text}
+                        </button>
+                      ) : (
+                        <p className="mt-1 text-[15px] leading-relaxed">{line.text}</p>
+                      )}
                     </li>
-                  ))}
+                    );
+                  })}
                 </ol>
                 <p className="mt-4 text-xs text-muted-foreground">
                   Live transcription captures raw text — conversation recordings
