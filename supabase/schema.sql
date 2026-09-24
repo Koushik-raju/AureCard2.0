@@ -193,6 +193,19 @@ alter table documents drop constraint if exists documents_source_doc_id_fkey;
 alter table documents add constraint documents_source_doc_id_fkey foreign key (source_doc_id) references documents(id) on delete set null;
 create index if not exists idx_docs_source_doc on documents(source_doc_id);
 
+-- ---------- Direct messages (simple 1:1 threads) ----------
+
+create table if not exists direct_messages (
+  id text primary key,
+  sender_email text not null,
+  recipient_email text not null,
+  text text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_dm_pair on direct_messages(sender_email, recipient_email);
+create index if not exists idx_dm_created on direct_messages(created_at);
+
 -- ---------- Workspace members directory ----------
 
 create table if not exists members (
@@ -245,6 +258,7 @@ alter table documents enable row level security;
 alter table document_blocks enable row level security;
 alter table document_attachments enable row level security;
 alter table members enable row level security;
+alter table direct_messages enable row level security;
 
 drop policy if exists "workspace_select" on spaces;
 create policy "workspace_select" on spaces for select using (auth.role() = 'authenticated');
@@ -272,6 +286,22 @@ begin
     execute format('create policy "workspace_delete" on %I for delete using (auth.role() = ''authenticated'');', t);
   end loop;
 end $$;
+-- Direct messages are private: only sender and recipient can read or send.
+drop policy if exists "dm_select" on direct_messages;
+create policy "dm_select" on direct_messages for select using (
+  auth.role() = 'authenticated' and (
+    lower(sender_email) = lower(auth.jwt() ->> 'email') or
+    lower(recipient_email) = lower(auth.jwt() ->> 'email')
+  )
+);
+drop policy if exists "dm_insert" on direct_messages;
+create policy "dm_insert" on direct_messages for insert with check (
+  auth.role() = 'authenticated' and (
+    lower(sender_email) = lower(auth.jwt() ->> 'email') or
+    lower(recipient_email) = lower(auth.jwt() ->> 'email')
+  )
+);
+
 -- ---------- File storage ----------
 -- Binary uploads (documents, inline media, task attachments) live in a
 -- Supabase Storage bucket instead of base64 data URLs in Postgres, so PDFs,
@@ -298,7 +328,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['spaces','projects','tasks','task_comments','task_items','folders','lists','task_activity','task_attachments','document_attachments','members']
+  foreach t in array array['spaces','projects','tasks','task_comments','task_items','folders','lists','task_activity','task_attachments','document_attachments','members','direct_messages']
   loop
     if not exists (
       select 1 from pg_publication_tables

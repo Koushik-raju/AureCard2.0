@@ -1567,3 +1567,42 @@ export async function removeMember(id: string): Promise<{ error?: string }> {
   revalidatePath("/org");
   return {};
 }
+
+// ---------- Direct messages ----------
+
+export async function sendDirectMessage(input: {
+  recipientEmail: string;
+  text: string;
+}): Promise<{ id?: string; error?: string }> {
+  const text = input.text.trim().slice(0, 2000);
+  if (!text) return { error: "Write a message first." };
+  const recipient = input.recipientEmail.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+    return { error: "Invalid recipient." };
+  }
+  const id = newId("dm");
+  if (!isDbConfigured) {
+    const user = await getCurrentUser();
+    memory.directMessages.push({
+      id,
+      senderEmail: (user?.email ?? "you").toLowerCase(),
+      recipientEmail: recipient,
+      text,
+      createdAt: new Date().toISOString(),
+    });
+    revalidatePath("/messages");
+    return { id };
+  }
+  const { client, user } = await requireClient();
+  const sender = (user.email ?? "").toLowerCase();
+  if (!sender) return { error: "Not signed in." };
+  const { error } = await client.from("direct_messages").insert({
+    id,
+    sender_email: sender,
+    recipient_email: recipient,
+    text,
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/messages");
+  return { id };
+}

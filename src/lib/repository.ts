@@ -11,6 +11,7 @@ import type {
   TaskAttachment,
   TaskComment,
   TaskItem,
+  DirectMessage,
   WorkspaceMember,
 } from "@/lib/types";
 import { createServerSupabase, isDbConfigured } from "@/lib/server-supabase";
@@ -244,6 +245,72 @@ export async function getActivity(): Promise<TaskActivity[]> {
 export async function getMembers(): Promise<WorkspaceMember[]> {
   if (!isDbConfigured) return memory.members;
   return queryAll("members", mapMember, { column: "created_at" });
+}
+
+function mapDirectMessage(r: Row): DirectMessage {
+  return {
+    id: String(r.id),
+    senderEmail: String(r.sender_email ?? ""),
+    recipientEmail: String(r.recipient_email ?? ""),
+    text: String(r.text ?? ""),
+    createdAt: String(r.created_at ?? new Date().toISOString()),
+  };
+}
+
+/** Latest messages involving this email (both directions), newest first. */
+export async function getMyMessages(email: string): Promise<DirectMessage[]> {
+  const me = email.trim().toLowerCase();
+  if (!me) return [];
+  if (!isDbConfigured) {
+    return memory.directMessages
+      .filter(
+        (m) =>
+          m.senderEmail.toLowerCase() === me || m.recipientEmail.toLowerCase() === me
+      )
+      .sort((m1, m2) => m2.createdAt.localeCompare(m1.createdAt))
+      .slice(0, 200);
+  }
+  const client = createServerSupabase();
+  if (!client) return [];
+  const { data, error } = await client
+    .from("direct_messages")
+    .select("*")
+    .or(`sender_email.ilike.${me},recipient_email.ilike.${me}`)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) {
+    console.error("[atlas] db direct_messages:", error.message);
+    return [];
+  }
+  return (data ?? []).map((r) => mapDirectMessage(r as unknown as Row));
+}
+
+/** 1:1 thread between two emails, oldest first. RLS already scopes to participants. */
+export async function getConversation(a: string, b: string): Promise<DirectMessage[]> {
+  const x = a.trim().toLowerCase();
+  const y = b.trim().toLowerCase();
+  if (!x || !y) return [];
+  if (!isDbConfigured) {
+    return memory.directMessages
+      .filter((m) => {
+        const s = m.senderEmail.toLowerCase();
+        const r = m.recipientEmail.toLowerCase();
+        return (s === x && r === y) || (s === y && r === x);
+      })
+      .sort((m1, m2) => m1.createdAt.localeCompare(m2.createdAt));
+  }
+  const client = createServerSupabase();
+  if (!client) return [];
+  const { data, error } = await client
+    .from("direct_messages")
+    .select("*")
+    .or(`and(sender_email.ilike.${x},recipient_email.ilike.${y}),and(sender_email.ilike.${y},recipient_email.ilike.${x})`)
+    .order("created_at", { ascending: true });
+  if (error) {
+    console.error("[atlas] db direct_messages:", error.message);
+    return [];
+  }
+  return (data ?? []).map((r) => mapDirectMessage(r as unknown as Row));
 }
 
 export async function getDocuments(): Promise<DocumentRef[]> {

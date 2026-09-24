@@ -11,6 +11,7 @@ import type {
   TaskAttachment,
   TaskComment,
   TaskItem,
+  DirectMessage,
   WorkspaceMember,
 } from "@/lib/types";
 
@@ -344,3 +345,5 @@ export const members: WorkspaceMember[] = [
   { id: "person-koushik", email: "koushik@atlasapp.io", name: "Koushik", role: "Owner" },
   { id: "person-rashmi", email: "rashmi@atlasapp.io", name: "Rashmi", role: "Member" },
 ];
+
+export const directMessages: DirectMessage[] = [];

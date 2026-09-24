@@ -1,6 +1,6 @@
 "use client";
 
-import { Home, FolderKanban, LayoutGrid, ListTodo, FileText, Search, Bot, History, LogOut, Mic, Inbox, Settings, Building2, Sparkles, GitBranch } from "lucide-react";
+import { Home, FolderKanban, LayoutGrid, ListTodo, FileText, Search, Bot, History, LogOut, MessageSquare, Mic, Inbox, Settings, Building2, Sparkles, GitBranch } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
@@ -21,11 +21,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/app/actions/auth";
 import { PREF_KEYS, readJson } from "@/lib/prefs";
-import {
-  DEFAULT_NOTIFICATION_PREFS,
-  applyNotificationPrefs,
-  type NotificationPrefs,
-} from "@/lib/notifications";
+import { inboxUnreadCount } from "@/lib/inbox-count";
 
 const NAV_GROUPS = [
   {
@@ -43,6 +39,7 @@ const NAV_GROUPS = [
       { label: "Mind map", href: "/mindmap", icon: GitBranch },
       { label: "Spaces", href: "/spaces", icon: LayoutGrid },
       { label: "Inbox", href: "/inbox", icon: Inbox },
+      { label: "Messages", href: "/messages", icon: MessageSquare },
     ],
   },
   {
@@ -61,52 +58,6 @@ const NAV_GROUPS = [
     ],
   },
 ];
-
-type SnapshotEntry = { id: string; kind: string; mine?: boolean };
-
-function readSnapshot(): SnapshotEntry[] {
-  try {
-    const raw = readJson<{ ids?: string[]; entries?: SnapshotEntry[] }>(
-      PREF_KEYS.inboxSnapshot,
-      { ids: [] }
-    );
-    if (Array.isArray(raw.entries)) return raw.entries;
-    if (Array.isArray(raw.ids)) {
-      return raw.ids.map((id) => ({ id, kind: "assignment" }));
-    }
-    return [];
-  } catch {
-    return [];
-  }
-}
-
-function readPrefs(): NotificationPrefs {
-  try {
-    return {
-      ...DEFAULT_NOTIFICATION_PREFS,
-      ...readJson<Partial<NotificationPrefs>>(PREF_KEYS.notifications, {}),
-    };
-  } catch {
-    return DEFAULT_NOTIFICATION_PREFS;
-  }
-}
-
-const INBOX_KINDS = ["assignment", "comment", "due", "activity"] as const;
-type InboxKind = (typeof INBOX_KINDS)[number];
-
-function inboxUnreadCount(): number {
-  try {
-    const read = new Set(readJson<{ ids: string[] }>(PREF_KEYS.inboxRead, { ids: [] }).ids ?? []);
-    const entries = readSnapshot().map((e) => ({
-      id: e.id,
-      kind: (INBOX_KINDS as readonly string[]).includes(e.kind) ? (e.kind as InboxKind) : ("activity" as InboxKind),
-      mine: !!e.mine,
-    }));
-    return applyNotificationPrefs(entries, readPrefs()).filter((i) => !read.has(i.id)).length;
-  } catch {
-    return 0;
-  }
-}
 
 /** Unread badge for the Inbox item, from the last inbox snapshot (no refetch). */
 function InboxBadge() {

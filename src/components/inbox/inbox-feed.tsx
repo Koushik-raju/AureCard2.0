@@ -62,11 +62,18 @@ export function InboxFeed({ items }: { items: InboxItem[] }) {
   const allowed = useMemo(() => applyNotificationPrefs(items, prefs), [items, prefs]);
   const unreadCount = allowed.filter((i) => !read.has(i.id)).length;
 
-  // Snapshot the current feed (with kinds) so the sidebar badge can count
-  // unread items without refetching (refreshed on every inbox visit).
+  // Snapshot the current feed (with kinds) so the sidebar badge and bell
+  // can count unread items without refetching (refreshed on every visit).
   useEffect(() => {
     writeJson(PREF_KEYS.inboxSnapshot, {
-      entries: items.map((i) => ({ id: i.id, kind: i.kind, mine: !!i.mine })),
+      entries: items.map((i) => ({
+        id: i.id,
+        kind: i.kind,
+        mine: !!i.mine,
+        title: i.title,
+        href: i.href,
+        ts: i.ts,
+      })),
       ts: Date.now(),
     });
   }, [items]);

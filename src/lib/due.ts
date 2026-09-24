@@ -19,6 +19,13 @@ export function addLocalDays(days: number, from: Date = new Date()): string {
   return localDayKey(d);
 }
 
+/** Day key `days` after a `YYYY-MM-DD` key (midnight-local arithmetic). */
+export function addDaysToKey(dayKey: string, days: number): string {
+  const d = new Date(`${dayKey}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return localDayKey(d);
+}
+
 function isOpen(task: Task): boolean {
   return task.status !== "done";
 }
@@ -33,14 +40,14 @@ export function isDueTodayTask(task: Task, today: string = todayKey()): boolean 
   return isOpen(task) && task.dueDate === today;
 }
 
-/** Open tasks due within `days` days from today (inclusive, overdue excluded). */
+/** Open tasks due within `days` days from `today` (inclusive, overdue excluded). */
 export function isDueSoonTask(
   task: Task,
   days = 7,
   today: string = todayKey()
 ): boolean {
   if (!isOpen(task) || !task.dueDate) return false;
-  return task.dueDate >= today && task.dueDate <= addLocalDays(days);
+  return task.dueDate >= today && task.dueDate <= addDaysToKey(today, days);
 }
 
 /** Open + overdue, oldest first. */

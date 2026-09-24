@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { InboxBell } from "@/components/layout/inbox-bell";
 import { SearchPalette } from "@/components/search/search-palette";
 import { getCurrentUser } from "@/app/actions/auth";
 
@@ -21,7 +22,10 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
             <div className="flex min-w-0 items-center gap-2">
               <SidebarTrigger className="md:hidden" />
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-1">
+              <InboxBell />
+              <ThemeToggle />
+            </div>
           </header>
           <main className="flex-1 overflow-y-auto">{children}</main>
           <SearchPalette />

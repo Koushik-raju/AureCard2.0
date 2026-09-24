@@ -121,6 +121,15 @@ export type WorkspaceMember = {
   createdAt?: string;
 };
 
+/** A single 1:1 direct message. */
+export type DirectMessage = {
+  id: string;
+  senderEmail: string;
+  recipientEmail: string;
+  text: string;
+  createdAt: string;
+};
+
 export type DocumentRef = {
   id: string;
   title: string;
