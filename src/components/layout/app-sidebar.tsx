@@ -30,7 +30,7 @@ const NAV_GROUPS = [
     items: [{ label: "Record", href: "/record", icon: Mic }],
   },
   {
-    label: "Atlas",
+    label: "Aure",
     items: [
       { label: "Home", href: "/home", icon: Home },
       { label: "Library", href: "/docs", icon: FileText },
@@ -103,7 +103,7 @@ export function AppSidebar({ userEmail }: { userEmail: string | null }) {  const
                 </div>
                 <div className="flex flex-col leading-tight">
                   <span className="font-serif text-[15px] font-medium tracking-tight">
-                    Atlas
+                    Aure
                   </span>
                   <span className="text-xs text-muted-foreground">Workspace</span>
                 </div>

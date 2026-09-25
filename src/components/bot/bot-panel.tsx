@@ -342,7 +342,7 @@ export function BotPanel({ data }: { data: BotData }) {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder="Ask about your workspace…"
-            aria-label="Ask Atlas"
+            aria-label="Ask Aure"
             className="h-11"
           />
           <Button type="submit" size="lg" disabled={!value.trim()}>

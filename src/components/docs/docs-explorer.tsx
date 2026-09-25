@@ -207,7 +207,7 @@ function NoteComposer({ spaces }: { spaces: Space[] }) {
           if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
         }}
         rows={3}
-          placeholder="Write the note — thoughts, a note to someone, anything. Atlas files and structures it."
+          placeholder="Write the note — thoughts, a note to someone, anything. Aure files and structures it."
         className="w-full resize-y bg-transparent font-serif text-[17px] leading-relaxed placeholder:text-muted-foreground/70 focus:outline-none"
       />
       <div className="mt-3 flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Note type">
@@ -414,7 +414,7 @@ export function DocsExplorer({ documents, spaces, mediaByDoc }: DocsExplorerProp
               </p>
               {activeTypeLabel ? (
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Atlas sorts notes by what they sound like. Try another filter.
+                  Aure sorts notes by what they sound like. Try another filter.
                 </p>
               ) : null}
             </div>
@@ -487,7 +487,7 @@ export function DocsExplorer({ documents, spaces, mediaByDoc }: DocsExplorerProp
             <div className="py-16 text-center">
               <p className="font-serif text-2xl tracking-tight">No notes yet.</p>
               <p className="mt-2 text-sm text-muted-foreground">
-                Write one above — Atlas files and structures it.
+                Write one above — Aure files and structures it.
               </p>
             </div>
           ) : null}

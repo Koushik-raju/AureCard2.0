@@ -28,7 +28,7 @@ export default async function BotPage() {
     <div className="mx-auto w-full max-w-4xl px-6 py-8 sm:py-10">
       <header className="mb-6">
         <h1 className="font-serif text-3xl font-medium tracking-tight sm:text-4xl">
-          Atlas Assistant
+          Aure Assistant
         </h1>
         <p className="mt-2 max-w-prose text-[15px] text-muted-foreground">
           A lightweight in-workspace assistant. Ask about your tasks, deadlines,

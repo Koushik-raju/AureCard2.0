@@ -22,7 +22,7 @@ export function ExportLibraryButton({ data }: { data: ExportPayload }) {
     const a = document.createElement("a");
     const stamp = new Date().toISOString().slice(0, 10);
     a.href = url;
-    a.download = `atlas-export-${stamp}.json`;
+    a.download = `aure-export-${stamp}.json`;
     document.body.appendChild(a);
     a.click();
     a.remove();

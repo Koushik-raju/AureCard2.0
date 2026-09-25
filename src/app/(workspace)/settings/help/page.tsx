@@ -32,7 +32,7 @@ const GUIDES = [
   },
   {
     id: "assistant",
-    title: "Atlas Assistant & Insights",
+    title: "Aure Assistant & Insights",
     body: [
       "Ask (sidebar → Ask) answers questions about your tasks, deadlines and priorities — no setup needed. Try “what's overdue?” or “what should I do first?”.",
       "Insights computes a live digest: completion rate, overdue and due-soon lists, longest-open items, recurring tag topics and captured-but-unresolved items from recordings.",
@@ -41,10 +41,10 @@ const GUIDES = [
   },
   {
     id: "desktop",
-    title: "Desktop app & Atlas card pairing",
+    title: "Desktop app & Aure card pairing",
     body: [
       "The desktop companion adds global capture: press Ctrl+Shift+R anywhere to start or stop a recording, even outside the browser.",
-      "Pair an Atlas card from the desktop app to file recordings to a space automatically. Card and device entitlements are managed under Settings → Subscription.",
+      "Pair an Aure card from the desktop app to file recordings to a space automatically. Card and device entitlements are managed under Settings → Subscription.",
       "Recordings made on desktop sync into the Library as File notes, identical to browser recordings.",
     ],
   },
@@ -73,7 +73,7 @@ export default function SettingsHelpPage() {
       <PageHeader
         eyebrow="Settings"
         title="Help"
-        description="Guides for recording, transcription, spaces, Atlas Assistant, the desktop app and troubleshooting."
+        description="Guides for recording, transcription, spaces, Aure Assistant, the desktop app and troubleshooting."
       />
       <nav aria-label="Guides" className="mb-6 flex flex-wrap gap-1.5">
         {GUIDES.map((g) => (

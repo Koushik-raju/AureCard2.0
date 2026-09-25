@@ -167,7 +167,7 @@ export function OrgManager({
     const url = `${window.location.origin}/login`;
     try {
       await navigator.clipboard.writeText(
-        `You've been invited to Atlas. Sign in with ${email} here: ${url}`
+        `You've been invited to Aure. Sign in with ${email} here: ${url}`
       );
       setCopiedId(id);
       setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1500);

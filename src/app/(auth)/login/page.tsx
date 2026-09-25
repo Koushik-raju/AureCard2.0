@@ -10,7 +10,7 @@ export default function LoginPage() {
           <span className="font-serif text-lg font-semibold">A</span>
         </div>
         <h1 className="mt-6 font-serif text-3xl font-medium tracking-tight">
-          Welcome to Atlas
+          Welcome to Aure
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
           {isDbConfigured

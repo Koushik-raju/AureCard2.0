@@ -26,7 +26,7 @@ export function PrivacyTools({ email }: { email: string | null }) {
           referenced by URL; recordings kept in this browser are embedded.
         </p>
         <Button asChild className="mt-3 min-h-11">
-          <a href="/api/export" download="atlas-export.json">
+          <a href="/api/export" download="aure-export.json">
             <Download className="size-4" /> Export as JSON
           </a>
         </Button>

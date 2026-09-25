@@ -1,4 +1,4 @@
--- Atlas seed data
+-- Aure seed data
 -- Run AFTER schema.sql. Safe to re-run (upserts).
 
 -- ---------- Spaces ----------

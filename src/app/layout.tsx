@@ -21,7 +21,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Atlas · Workspace",
+  title: "Aure · Workspace",
   description: "A calm, connected workspace for your work, notes, and tasks.",
 };
 

@@ -58,7 +58,7 @@ export type Task = {
   dueDate?: string;
   startDate?: string;
   description?: string;
-  /** Verbatim quote this task was captured from (Atlas-style provenance). */
+  /** Verbatim quote this task was captured from (Aure-style provenance). */
   quote?: string;
   /** Document/note this task was captured from. */
   sourceDocId?: string;
@@ -142,7 +142,7 @@ export type DocumentRef = {
   sourceDocId?: string;
   /** ISO timestamp for library time grouping (DB only; absent on old rows). */
   createdAt?: string;
-  /** Atlas-style filing for recordings: what the note sounds like. */
+  /** Aure-style filing for recordings: what the note sounds like. */
   recordingType?: RecordingType;
   /** Recording length in seconds (audio/file docs). */
   durationSecs?: number;
