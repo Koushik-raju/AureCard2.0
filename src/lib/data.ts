@@ -12,6 +12,7 @@ import type {
   TaskComment,
   TaskItem,
   DirectMessage,
+  GroupThread,
   WorkspaceMember,
 } from "@/lib/types";
 
@@ -347,3 +348,5 @@ export const members: WorkspaceMember[] = [
 ];
 
 export const directMessages: DirectMessage[] = [];
+
+export const groupThreads: GroupThread[] = [];

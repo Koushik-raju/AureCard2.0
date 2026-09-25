@@ -3,8 +3,9 @@ import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/s
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { InboxBell } from "@/components/layout/inbox-bell";
-import { SearchPalette } from "@/components/search/search-palette";
+import { SearchPalette, SearchTriggerButton } from "@/components/search/search-palette";
 import { getCurrentUser } from "@/app/actions/auth";
+import { getGroupThreadsFor, getMembers } from "@/lib/repository";
 
 export default async function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   // Hard gate: a forged or revoked session cookie passes the fast middleware
@@ -13,14 +14,17 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
   // backstop at the database.
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  const directory = await getMembers();
+  const threads = await getGroupThreadsFor(user.email ?? "");
   return (
       <SidebarProvider>
-        <AppSidebar userEmail={user.email ?? "Unknown"} />
+        <AppSidebar userEmail={user.email ?? "Unknown"} directory={directory} threads={threads} />
       <SidebarInset className="min-w-0">
         <div className="relative flex h-full flex-col">
           <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border bg-background/95 px-4 backdrop-blur sm:px-6">
-            <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
               <SidebarTrigger className="md:hidden" />
+              <SearchTriggerButton />
             </div>
             <div className="flex items-center gap-1">
               <InboxBell />

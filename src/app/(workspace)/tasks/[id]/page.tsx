@@ -15,7 +15,6 @@ import {
 } from "@/lib/repository";
 import { getCurrentUser } from "@/app/actions/auth";
 import { TaskDetail } from "@/components/tasks/task-detail";
-import { SpaceTree } from "@/components/layout/space-tree";
 
 export default async function TaskDetailPage({
   params,
@@ -43,27 +42,22 @@ export default async function TaskDetailPage({
     ]);
 
   return (
-    <div className="flex">
-      <SpaceTree />
-      <div className="min-w-0 flex-1">
-        <TaskDetail
-          task={task}
-          projectName={project?.name}
-          spaceName={space?.name}
-          listName={list?.name}
-          items={items}
-          comments={comments}
-          activity={activity}
-          documents={documents}
-          attachments={attachments}
-          currentAuthor={user?.email}
-          sourceDocTitle={sourceDoc?.title}
-          spaceDocs={spaceDocs.map((d) => ({ id: d.id, title: d.title }))}
-          docMedia={Object.fromEntries(
-            documents.map((d) => [d.id, (media.get(d.id) ?? []).map((m) => m.mime)])
-          )}
-        />
-      </div>
-    </div>
+    <TaskDetail
+      task={task}
+      projectName={project?.name}
+      spaceName={space?.name}
+      listName={list?.name}
+      items={items}
+      comments={comments}
+      activity={activity}
+      documents={documents}
+      attachments={attachments}
+      currentAuthor={user?.email}
+      sourceDocTitle={sourceDoc?.title}
+      spaceDocs={spaceDocs.map((d) => ({ id: d.id, title: d.title }))}
+      docMedia={Object.fromEntries(
+        documents.map((d) => [d.id, (media.get(d.id) ?? []).map((m) => m.mime)])
+      )}
+    />
   );
 }

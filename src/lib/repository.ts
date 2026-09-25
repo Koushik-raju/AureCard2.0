@@ -12,6 +12,7 @@ import type {
   TaskComment,
   TaskItem,
   DirectMessage,
+  GroupThread,
   WorkspaceMember,
 } from "@/lib/types";
 import { createServerSupabase, isDbConfigured } from "@/lib/server-supabase";
@@ -254,7 +255,67 @@ function mapDirectMessage(r: Row): DirectMessage {
     recipientEmail: String(r.recipient_email ?? ""),
     text: String(r.text ?? ""),
     createdAt: String(r.created_at ?? new Date().toISOString()),
+    threadId: r.thread_id ? String(r.thread_id) : undefined,
   };
+}
+
+function mapGroupThread(r: Row): GroupThread {
+  const members = Array.isArray(r.member_emails)
+    ? (r.member_emails as unknown[]).map((e) => String(e))
+    : [];
+  return {
+    id: String(r.id),
+    name: String(r.name ?? ""),
+    memberEmails: members,
+    createdBy: r.created_by ? String(r.created_by) : undefined,
+    createdAt: r.created_at ? String(r.created_at) : undefined,
+  };
+}
+
+/** Group threads the given email belongs to, newest first. */
+export async function getGroupThreadsFor(email: string): Promise<GroupThread[]> {
+  const me = email.trim().toLowerCase();
+  if (!me) return [];
+  if (!isDbConfigured) {
+    return memory.groupThreads
+      .filter((t) => t.memberEmails.some((e) => e.toLowerCase() === me))
+      .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+  }
+  const client = createServerSupabase();
+  if (!client) return [];
+  const { data, error } = await client
+    .from("group_threads")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.error("[atlas] db group_threads:", error.message);
+    return [];
+  }
+  return (data ?? [])
+    .map((r) => mapGroupThread(r as unknown as Row))
+    .filter((t) => t.memberEmails.some((e) => e.toLowerCase() === me));
+}
+
+/** Messages of one group thread, oldest first. */
+export async function getThreadMessages(threadId: string): Promise<DirectMessage[]> {
+  if (!threadId) return [];
+  if (!isDbConfigured) {
+    return memory.directMessages
+      .filter((m) => m.threadId === threadId)
+      .sort((m1, m2) => m1.createdAt.localeCompare(m2.createdAt));
+  }
+  const client = createServerSupabase();
+  if (!client) return [];
+  const { data, error } = await client
+    .from("direct_messages")
+    .select("*")
+    .eq("thread_id", threadId)
+    .order("created_at", { ascending: true });
+  if (error) {
+    console.error("[atlas] db direct_messages:", error.message);
+    return [];
+  }
+  return (data ?? []).map((r) => mapDirectMessage(r as unknown as Row));
 }
 
 /** Latest messages involving this email (both directions), newest first. */

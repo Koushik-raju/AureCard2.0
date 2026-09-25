@@ -1,19 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Send } from "lucide-react";
+import { Bold, Code, Italic, List, Quote } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PREF_KEYS, readJson, writeJson } from "@/lib/prefs";
 import { getBrowserSupabase } from "@/lib/supabase-client";
 import { sendDirectMessage } from "@/lib/mutations";
 import { AssigneeAvatar } from "@/components/tasks/hues";
-import type { DirectMessage, WorkspaceMember } from "@/lib/types";
-import { formatDueDate, formatRelativeTime } from "@/lib/dates";
+import type { DirectMessage, GroupThread, WorkspaceMember } from "@/lib/types";
+import { formatDueDate } from "@/lib/dates";
 import { localDayKey, todayKey } from "@/lib/due";
 
 function dayDividerLabel(dayKey: string): string {
+  if (!dayKey) return "";
   if (dayKey === todayKey()) return "Today";
   const y = new Date();
   y.setDate(y.getDate() - 1);
@@ -21,285 +20,52 @@ function dayDividerLabel(dayKey: string): string {
   return formatDueDate(dayKey);
 }
 
-type MessageGroup = { day: string; sender: string; items: DirectMessage[] };
+function messageTime(iso: string): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  return new Date(t).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
-/** Consecutive messages from one sender on one day render as one cluster. */
-function groupThread(thread: DirectMessage[]): MessageGroup[] {
-  const groups: MessageGroup[] = [];
-  for (const m of thread) {
-    const t = Date.parse(m.createdAt);
-    const day = Number.isNaN(t) ? "" : localDayKey(new Date(t));
-    const sender = m.senderEmail.toLowerCase();
-    const last = groups[groups.length - 1];
-    if (last && last.day === day && last.sender === sender) {
-      last.items.push(m);
-    } else {
-      groups.push({ day, sender, items: [m] });
+function dayOf(m: DirectMessage): string {
+  const t = Date.parse(m.createdAt);
+  return Number.isNaN(t) ? "" : localDayKey(new Date(t));
+}
+
+function insertAround(
+  el: HTMLTextAreaElement | null,
+  setDraft: (v: string) => void,
+  before: string,
+  after: string
+) {
+  if (!el) return;
+  const { selectionStart: s = 0, selectionEnd: e = 0, value } = el;
+  const next = `${value.slice(0, s)}${before}${value.slice(s, e)}${after}${value.slice(e)}`;
+  setDraft(next);
+  requestAnimationFrame(() => {
+    el.focus();
+    const pos = s + before.length + (e - s);
+    try {
+      el.setSelectionRange(pos, pos);
+    } catch {
+      /* ignore */
     }
-  }
-  return groups;
-}
-
-function loadVisits(): Record<string, number> {
-  try {
-    const raw = readJson<Record<string, number>>(PREF_KEYS.dmVisits, {});
-    return raw && typeof raw === "object" ? raw : {};
-  } catch {
-    return {};
-  }
-}
-
-let cachedVisitsRaw: string | null = null;
-let cachedVisits: Record<string, number> = {};
-
-function subscribeVisits(onChange: () => void): () => void {
-  window.addEventListener("storage", onChange);
-  window.addEventListener("focus", onChange);
-  return () => {
-    window.removeEventListener("storage", onChange);
-    window.removeEventListener("focus", onChange);
-  };
-}
-
-/** Storage-backed visit map (snapshot-cached so subscribers stay stable). */
-function readStoredVisits(): Record<string, number> {
-  let raw: string | null = null;
-  try {
-    raw = window.localStorage.getItem(PREF_KEYS.dmVisits);
-  } catch {
-    return {};
-  }
-  if (raw === cachedVisitsRaw) return cachedVisits;
-  cachedVisitsRaw = raw;
-  try {
-    const parsed: unknown = raw ? JSON.parse(raw) : {};
-    cachedVisits =
-      parsed && typeof parsed === "object" ? (parsed as Record<string, number>) : {};
-  } catch {
-    cachedVisits = {};
-  }
-  return cachedVisits;
-}
-
-function markVisited(email: string) {
-  const key = email.trim().toLowerCase();
-  if (!key) return;
-  writeJson(PREF_KEYS.dmVisits, { ...loadVisits(), [key]: Date.now() });
-}
-
-function otherParty(m: DirectMessage, me: string): string {
-  return m.senderEmail.toLowerCase() === me ? m.recipientEmail : m.senderEmail;
-}
-
-export function MessagesExplorer({
-  me,
-  directory,
-  peerEmail,
-  initialThread,
-  recent,
-}: {
-  me: string;
-  directory: WorkspaceMember[];
-  peerEmail: string | null;
-  initialThread: DirectMessage[];
-  recent: DirectMessage[];
-}) {
-  return (
-    <div className="flex">
-      <MessagesPeople
-        me={me}
-        directory={directory}
-        peerEmail={peerEmail}
-        recent={recent}
-        panel
-      />
-      <div className="min-w-0 flex-1">
-        <MessagesThread
-          me={me}
-          directory={directory}
-          peerEmail={peerEmail}
-          initialThread={initialThread}
-        />
-      </div>
-    </div>
-  );
+  });
 }
 
 export function MessagesThread({
   me,
   directory,
   peerEmail,
+  group,
   initialThread,
 }: {
   me: string;
   directory: WorkspaceMember[];
   peerEmail: string | null;
-  initialThread: DirectMessage[];
-}) {
-  const router = useRouter();
-  const peer = directory.find((d) => d.email.toLowerCase() === (peerEmail ?? "").toLowerCase());
-
-  return (
-      <section aria-label="Conversation" className="flex min-h-[50vh] min-w-0 flex-1 flex-col">
-        <div className="border-b border-border px-4 py-2 lg:hidden">
-          <label htmlFor="dm-peer" className="sr-only">
-            Choose person
-          </label>
-          <select
-            id="dm-peer"
-            value={peer?.email ?? ""}
-            onChange={(e) => {
-              if (e.target.value) router.push(`/messages?to=${encodeURIComponent(e.target.value)}`);
-            }}
-            className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <option value="">Choose person…</option>
-            {directory.map((d) => (
-              <option key={d.id} value={d.email}>
-                {d.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        {!peer ? (
-          <p className="m-auto px-6 py-16 text-center text-sm text-muted-foreground">
-            Pick someone to start messaging.
-          </p>
-        ) : (
-          <ThreadView
-            key={peer.email.toLowerCase()}
-            me={me}
-            peer={peer}
-            initialThread={initialThread}
-          />
-        )}
-      </section>
-  );
-}
-
-export function MessagesPeople({
-  me,
-  directory,
-  peerEmail,
-  recent,
-  panel,
-}: {
-  me: string;
-  directory: WorkspaceMember[];
-  peerEmail: string | null;
-  recent: DirectMessage[];
-  /** Render as a full-height second-sidebar panel instead of a card. */
-  panel?: boolean;
-}) {
-  // Unread dots from storage; the open thread never shows one.
-  // Writes happen in click handlers + mount only — never during render.
-  const storedVisits = useSyncExternalStore(
-    subscribeVisits,
-    readStoredVisits,
-    () => ({}) as Record<string, number>
-  );
-  const visitMap = storedVisits;
-  const open = (peerEmail ?? "").toLowerCase();
-  useEffect(() => {
-    if (peerEmail) markVisited(peerEmail);
-  }, [peerEmail]);
-  const latestByPeer = useMemo(() => {
-    const map = new Map<string, DirectMessage>();
-    for (const m of [...recent].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
-      const other = otherParty(m, me).toLowerCase();
-      if (!map.has(other)) map.set(other, m);
-    }
-    return map;
-  }, [recent, me]);
-
-  const list = (
-    <>
-      {directory.length === 0 ? (
-        <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-          Nobody yet — invite people on the{" "}
-          <Link href="/org" className="underline">
-            Organization
-          </Link>{" "}
-          page.
-        </p>
-      ) : (
-        <ul className="space-y-0.5">
-          {directory.map((d) => {
-            const key = d.email.toLowerCase();
-            const last = latestByPeer.get(key);
-            const unread =
-              !!last &&
-                key !== open &&
-              last.senderEmail.toLowerCase() !== me &&
-                Date.parse(last.createdAt) > (visitMap[key] ?? 0);
-            const selected = key === (peerEmail ?? "").toLowerCase();
-            return (
-              <li key={d.id}>
-                <Link
-                  href={`/messages?to=${encodeURIComponent(d.email)}`}
-                  onClick={() => markVisited(d.email)}
-                  className={cn(
-                    "flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    selected && "bg-muted"
-                  )}
-                >
-                  <span className="relative shrink-0">
-                    <AssigneeAvatar name={d.name} size="md" />
-                    {unread ? (
-                      <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-card bg-primary" aria-label="Unread" />
-                    ) : null}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-baseline gap-1.5">
-                      <span className="truncate text-sm font-medium">{d.name}</span>
-                      {d.email.toLowerCase() === me ? (
-                        <span className="shrink-0 text-[11px] text-muted-foreground">(you)</span>
-                      ) : null}
-                      {last ? (
-                        <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                          {formatRelativeTime(last.createdAt)}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className={cn("block truncate text-[13px]", last ? "text-muted-foreground" : "text-muted-foreground/70")}>
-                      {last ? last.text : d.email}
-                    </span>
-                  </span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </>
-  );
-
-  if (!panel) {
-    return (
-      <nav aria-label="People" className="rounded-xl border border-border bg-card p-2">
-        {list}
-      </nav>
-    );
-  }
-  return (
-    <aside aria-label="People" className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-r border-border bg-card lg:flex">
-      <div className="px-3 pb-1 pt-3">
-        <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          People
-        </span>
-      </div>
-      <nav className="flex-1 px-2 pb-3">{list}</nav>
-    </aside>
-  );
-}
-
-function ThreadView({
-  me,
-  peer,
-  initialThread,
-}: {
-  me: string;
-  peer: WorkspaceMember;
+  group: GroupThread | null;
   initialThread: DirectMessage[];
 }) {
   const router = useRouter();
@@ -308,15 +74,37 @@ function ThreadView({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const bottomRef = useRef<HTMLDivElement>(null);
-  const peerEmail = peer.email;
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const peer = !group
+    ? (directory.find((d) => d.email.toLowerCase() === (peerEmail ?? "").toLowerCase()) ?? null)
+    : null;
+
+  const namesByEmail = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const d of directory) map.set(d.email.toLowerCase(), d.name);
+    return map;
+  }, [directory]);
+
+  function senderName(email: string): string {
+    if (email.toLowerCase() === me) return "You";
+    return namesByEmail.get(email.toLowerCase()) ?? email;
+  }
+
+  const title = group ? group.name : (peer?.name ?? "Messages");
+  const subtitle = group
+    ? group.memberEmails
+        .map((e) => namesByEmail.get(e.toLowerCase()) ?? e)
+        .join(", ")
+    : (peer?.email ?? "Pick someone from Direct messages in the sidebar.");
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [thread.length]);
+  }, [thread.length, peerEmail, group?.id]);
 
-  // Live inserts for this pair.
+  // Live inserts for this conversation.
   useEffect(() => {
-    if (!me || !peerEmail) return;
+    if (!me || (!peerEmail && !group)) return;
     const supabase = getBrowserSupabase();
     if (!supabase) return;
     const channel = supabase
@@ -332,11 +120,15 @@ function ThreadView({
             recipientEmail: String(row.recipient_email ?? ""),
             text: String(row.text ?? ""),
             createdAt: String(row.created_at ?? new Date().toISOString()),
+            threadId: row.thread_id ? String(row.thread_id) : undefined,
           };
           if (!msg.id || !msg.text) return;
-          const pair = [msg.senderEmail.toLowerCase(), msg.recipientEmail.toLowerCase()];
-          if (!pair.includes(me) || !pair.includes(peerEmail.toLowerCase())) return;
-          markVisited(otherParty(msg, me));
+          if (group) {
+            if (msg.threadId !== group.id) return;
+          } else {
+            const pair = [msg.senderEmail.toLowerCase(), msg.recipientEmail.toLowerCase()];
+            if (!pair.includes(me) || !pair.includes((peerEmail ?? "").toLowerCase())) return;
+          }
           setThread((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
         }
       )
@@ -344,15 +136,18 @@ function ThreadView({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [me, peerEmail]);
+  }, [me, peerEmail, group]);
 
   function send() {
     const text = draft.trim();
     if (!text || isPending) return;
+    if (!group && !peerEmail) return;
     setError(null);
     setDraft("");
     startTransition(async () => {
-      const result = await sendDirectMessage({ recipientEmail: peerEmail, text });
+      const result = group
+        ? await sendDirectMessage({ threadId: group.id, text })
+        : await sendDirectMessage({ recipientEmail: peerEmail ?? "", text });
       if (result.error) {
         setError(result.error);
         setDraft(text);
@@ -362,97 +157,127 @@ function ThreadView({
     });
   }
 
-  const groups = useMemo(() => groupThread(thread), [thread]);
+  const tools = [
+    { label: "Bold", icon: Bold, before: "**", after: "**" },
+    { label: "Italic", icon: Italic, before: "_", after: "_" },
+    { label: "Bullet", icon: List, before: "\n- ", after: "" },
+    { label: "Quote", icon: Quote, before: "\n> ", after: "" },
+    { label: "Code", icon: Code, before: "`", after: "`" },
+  ] as const;
 
   return (
-    <>
-      <header className="flex items-center gap-2.5 border-b border-border px-4 py-3">
-        <AssigneeAvatar name={peer.name} size="sm" />
-        <div className="min-w-0">
-          <h2 className="truncate text-[15px] font-medium">{peer.name}</h2>
-          <p className="truncate text-xs text-muted-foreground">{peer.email}</p>
-        </div>
+    <section aria-label="Conversation" className="flex min-h-[60vh] flex-col">
+      <header className="border-b border-border px-4 py-3 sm:px-6">
+        <h2 className="truncate text-[15px] font-medium">{title}</h2>
+        <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
       </header>
-            <div className="flex-1 space-y-4 overflow-y-auto bg-muted/20 px-4 py-4 sm:px-6" aria-live="polite">
-              {thread.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center py-16 text-center">
-                  <AssigneeAvatar name={peer.name} size="md" />
-                  <p className="mt-3 text-sm font-medium">{peer.name}</p>
-                  <p className="mt-1 max-w-60 text-[13px] text-muted-foreground">
-                    This is the start of your conversation. Messages stay between the two of you.
-                  </p>
-                </div>
-              ) : (
-                groups.map((group, gi) => (
-                  <div key={`${group.day}-${group.sender}-${gi}`}>
-                    {(gi === 0 || groups[gi - 1]?.day !== group.day) && group.day ? (
-                      <div className="mb-3 flex justify-center">
-                        <span className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                          {dayDividerLabel(group.day)}
-                        </span>
-                      </div>
-                    ) : null}
-                    <div className={cn("flex", group.sender === me ? "justify-end" : "justify-start gap-2")}>
-                      {group.sender !== me ? (
-                        <AssigneeAvatar name={peer.name} size="sm" />
-                      ) : null}
-                      <div className={cn("min-w-0 max-w-[70%] space-y-1", group.sender === me && "flex flex-col items-end")}>
-                        {group.items.map((m) => {
-                          const mine = m.senderEmail.toLowerCase() === me;
-                          return (
-                            <div
-                              key={m.id}
-                              className={cn(
-                                "w-fit max-w-full rounded-xl px-3 py-1.5 text-sm leading-relaxed shadow-sm",
-                                mine
-                                  ? "bg-primary text-primary-foreground"
-                                  : "border border-border bg-card text-foreground"
-                              )}
-                            >
-                              <p className="whitespace-pre-wrap break-words">{m.text}</p>
-                              <p
-                                className={cn(
-                                  "mt-0.5 text-right text-[10px] tabular-nums",
-                                  mine ? "text-primary-foreground/70" : "text-muted-foreground/70"
-                                )}
-                              >
-                                {formatRelativeTime(m.createdAt)}
-                              </p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+      <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:px-6" aria-live="polite">
+        {thread.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center py-16 text-center">
+            {peer ? <AssigneeAvatar name={peer.name} size="md" /> : null}
+            <p className="mt-3 text-sm font-medium">{group ? group.name : (peer?.name ?? "No conversation")}</p>
+            <p className="mt-1 max-w-60 text-[13px] text-muted-foreground">
+              {group
+                ? "Messages here stay between group members."
+                : "This is the start of your conversation. Messages stay between the two of you."}
+            </p>
+          </div>
+        ) : (
+          thread.map((m, i) => {
+            const prevDay = i > 0 ? dayOf(thread[i - 1]) : null;
+            const day = dayOf(m);
+            const mine = m.senderEmail.toLowerCase() === me;
+            const name = senderName(m.senderEmail);
+            return (
+              <div key={m.id}>
+                {day && day !== prevDay ? (
+                  <div className="mb-3 flex items-center gap-3">
+                    <span aria-hidden="true" className="h-px flex-1 bg-border" />
+                    <span className="rounded-full border border-border px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                      {dayDividerLabel(day)}
+                    </span>
+                    <span aria-hidden="true" className="h-px flex-1 bg-border" />
                   </div>
-                ))
-              )}
-              <div ref={bottomRef} />
-            </div>
-            <form
-              className="flex items-end gap-2 border-t border-border bg-card px-4 py-3"
-              onSubmit={(e) => {
-                e.preventDefault();
-                send();
-              }}
-            >
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder={`Message ${peer.name}…`}
-                aria-label={`Message ${peer.name}`}
-                maxLength={2000}
-                className="min-h-10 min-w-0 flex-1 rounded-full border border-input bg-background px-4 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring"
-              />
+                ) : null}
+                <div className="flex items-start gap-2.5">
+                  <AssigneeAvatar name={mine ? (namesByEmail.get(me) ?? name) : name} size="md" />
+                  <div className="min-w-0 flex-1">
+                    <p className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="text-sm font-medium">{name}</span>
+                      <span className="text-[11px] tabular-nums text-muted-foreground">
+                        {messageTime(m.createdAt)}
+                      </span>
+                    </p>
+                    <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-relaxed">
+                      {m.text}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+        <div ref={bottomRef} />
+      </div>
+      <div className="border-t border-border px-4 py-3 sm:px-6">
+        <div
+          className={cn(
+            "rounded-xl border border-input bg-card",
+            "focus-within:border-ring"
+          )}
+        >
+          <div className="flex items-center gap-0.5 border-b border-border/60 px-2 py-1" role="toolbar" aria-label="Formatting">
+            {tools.map((tool) => (
               <button
-                type="submit"
-                disabled={!draft.trim() || isPending}
-                aria-label="Send message"
-                className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
+                key={tool.label}
+                type="button"
+                title={tool.label}
+                aria-label={tool.label}
+                onClick={() => insertAround(inputRef.current, setDraft, tool.before, tool.after)}
+                className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <Send className="size-4" />
+                <tool.icon className="size-3.5" />
               </button>
-            </form>
-            {error ? <p className="px-4 pb-3 text-sm text-destructive">{error}</p> : null}
-    </>
+            ))}
+            <span className="ml-auto hidden px-1 text-[11px] text-muted-foreground sm:inline">
+              Plain text — markers are sent as typed
+            </span>
+          </div>
+          <form
+            className="flex items-end gap-2 p-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              send();
+            }}
+          >
+            <textarea
+              ref={inputRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+              placeholder={group ? `Message ${group.name}…` : peer ? `Message ${peer.name}…` : "Write a message…"}
+              aria-label="Write a message"
+              maxLength={2000}
+              rows={1}
+              className="max-h-32 min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-muted-foreground"
+            />
+            <button
+              type="submit"
+              disabled={!draft.trim() || isPending || (!group && !peerEmail)}
+              aria-label="Send message"
+              className="mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground disabled:opacity-40"
+            >
+              ↑
+            </button>
+          </form>
+        </div>
+        {error ? <p className="mt-2 text-sm text-destructive">{error}</p> : null}
+      </div>
+    </section>
   );
 }

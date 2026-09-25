@@ -1,8 +1,8 @@
 "use client";
 
-import { Home, FolderKanban, LayoutGrid, ListTodo, FileText, Search, Bot, History, LogOut, MessageSquare, Mic, Inbox, Settings, Building2, Sparkles, GitBranch } from "lucide-react";
+import { Home, FolderKanban, LayoutGrid, ListTodo, FileText, Search, Bot, History, LogOut, Mic, Inbox, Settings, Sparkles, GitBranch, Users, Plus } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 
 import {
@@ -23,6 +23,9 @@ import { signOut } from "@/app/actions/auth";
 import { CreateMenu } from "@/components/layout/create-menu";
 import { PREF_KEYS, readJson } from "@/lib/prefs";
 import { inboxUnreadCount } from "@/lib/inbox-count";
+import { createGroupThread } from "@/lib/mutations";
+import { AssigneeAvatar } from "@/components/tasks/hues";
+import type { GroupThread, WorkspaceMember } from "@/lib/types";
 
 const NAV_GROUPS = [
   {
@@ -33,36 +36,205 @@ const NAV_GROUPS = [
     label: "Aure",
     items: [
       { label: "Home", href: "/home", icon: Home },
-      { label: "Library", href: "/docs", icon: FileText },
       { label: "Ask", href: "/bot", icon: Bot },
-      { label: "Tasks", href: "/tasks", icon: ListTodo },
+      { label: "Library", href: "/docs", icon: FileText },
       { label: "Insights", href: "/insights", icon: Sparkles },
-      { label: "Mind map", href: "/mindmap", icon: GitBranch },
-      { label: "Spaces", href: "/spaces", icon: LayoutGrid },
       { label: "Inbox", href: "/inbox", icon: Inbox },
-      { label: "Messages", href: "/messages", icon: MessageSquare },
-    ],
-  },
-  {
-    label: "Workspace",
-    items: [
-      { label: "Projects", href: "/projects", icon: FolderKanban },
+      { label: "Mind map", href: "/mindmap", icon: GitBranch },
       { label: "Search", href: "/search", icon: Search },
       { label: "History", href: "/history", icon: History },
     ],
   },
   {
+    label: "Workspace",
+    items: [
+      { label: "Spaces", href: "/spaces", icon: LayoutGrid },
+      { label: "Projects", href: "/projects", icon: FolderKanban },
+      { label: "Tasks", href: "/tasks", icon: ListTodo },
+    ],
+  },
+  {
     label: "System",
     items: [
-      { label: "Organization", href: "/org", icon: Building2 },
       { label: "Settings", href: "/settings", icon: Settings },
     ],
   },
 ];
 
+function DirectMessagesGroup({
+  directory,
+  userEmail,
+}: {
+  directory: WorkspaceMember[];
+  userEmail: string | null;
+}) {
+  const pathname = usePathname();
+  const me = (userEmail ?? "").toLowerCase();
+  const people = directory.filter((d) => d.email.toLowerCase() !== me);
+  if (people.length === 0) return null;
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>Direct messages</SidebarGroupLabel>
+      <SidebarMenu>
+        {people.map((d) => {
+          const href = `/messages?to=${encodeURIComponent(d.email)}`;
+          const active = pathname === "/messages";
+          return (
+            <SidebarMenuItem key={d.id}>
+              <SidebarMenuButton asChild isActive={active} tooltip={d.name}>
+                <Link href={href}>
+                  <AssigneeAvatar name={d.name} size="sm" />
+                  <span className="truncate">{d.name}</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          );
+        })}
+      </SidebarMenu>
+    </SidebarGroup>
+  );
+}
+
+function GroupsGroup({
+  threads,
+  directory,
+}: {
+  threads: GroupThread[];
+  directory: WorkspaceMember[];
+}) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [picked, setPicked] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function togglePick(email: string) {
+    setPicked((prev) =>
+      prev.includes(email) ? prev.filter((e) => e !== email) : [...prev, email]
+    );
+  }
+
+  function create() {
+    if (!name.trim() || picked.length === 0 || isPending) return;
+    setError(null);
+    startTransition(async () => {
+      const result = await createGroupThread({ name: name.trim(), emails: picked });
+      if (result.error || !result.id) {
+        setError(result.error ?? "Could not create the group.");
+        return;
+      }
+      setOpen(false);
+      setName("");
+      setPicked([]);
+      router.push(`/messages?group=${result.id}`);
+      router.refresh();
+    });
+  }
+
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>
+        <span className="flex w-full items-center justify-between">
+          Groups
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setOpen(true);
+            }}
+            aria-label="New group"
+            title="New group"
+            className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Plus className="size-3.5" />
+          </button>
+        </span>
+      </SidebarGroupLabel>
+      <SidebarMenu>
+        {threads.map((t) => (
+          <SidebarMenuItem key={t.id}>
+            <SidebarMenuButton
+              asChild
+              isActive={pathname === "/messages"}
+              tooltip={t.name}
+            >
+              <Link href={`/messages?group=${t.id}`}>
+                <Users className="size-[18px]" />
+                <span className="truncate">{t.name}</span>
+                <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">
+                  {t.memberEmails.length}
+                </span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ))}
+      </SidebarMenu>
+      {open ? (
+        <>
+          <span
+            className="fixed inset-0 z-40"
+            onClick={() => setOpen(false)}
+            aria-hidden="true"
+          />
+          <div
+            role="dialog"
+            aria-label="New group"
+            className="fixed left-4 top-24 z-50 max-h-[80vh] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-border bg-popover p-4 shadow-xl sm:left-[300px]"
+          >
+            <p className="font-serif text-base font-medium">New group</p>
+            <label htmlFor="new-group-name" className="mt-3 block text-xs text-muted-foreground">
+              Group name
+            </label>
+            <input
+              id="new-group-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Launch crew"
+              maxLength={80}
+              autoFocus
+              className="mt-1 h-9 w-full rounded-md border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring"
+            />
+            <p className="mt-3 text-xs text-muted-foreground">Members</p>
+            <ul className="mt-1 max-h-44 space-y-0.5 overflow-y-auto">
+              {directory.map((d) => (
+                <li key={d.id}>
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1.5 text-sm hover:bg-muted">
+                    <input
+                      type="checkbox"
+                      checked={picked.includes(d.email)}
+                      onChange={() => togglePick(d.email)}
+                      className="size-4 accent-primary"
+                    />
+                    <AssigneeAvatar name={d.name} size="sm" />
+                    <span className="min-w-0 flex-1 truncate">{d.name}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+            {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
+            <div className="mt-3 flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={create}
+                disabled={!name.trim() || picked.length === 0 || isPending}
+              >
+                {isPending ? "Creating…" : "Create group"}
+              </Button>
+            </div>
+          </div>
+        </>
+      ) : null}
+    </SidebarGroup>
+  );
+}
+
 /** Unread badge for the Inbox item, from the last inbox snapshot (no refetch). */
-function InboxBadge() {
-  const [count, setCount] = useState(inboxUnreadCount);
+function InboxBadge() {  const [count, setCount] = useState(inboxUnreadCount);
   useEffect(() => {
     const update = () => setCount(inboxUnreadCount());
     window.addEventListener("storage", update);
@@ -83,7 +255,16 @@ function InboxBadge() {
   );
 }
 
-export function AppSidebar({ userEmail }: { userEmail: string | null }) {  const pathname = usePathname();
+export function AppSidebar({
+  userEmail,
+  directory,
+  threads,
+}: {
+  userEmail: string | null;
+  directory: WorkspaceMember[];
+  threads: GroupThread[];
+}) {
+  const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
   const [displayName, setDisplayName] = useState("");
   useEffect(() => {
@@ -144,6 +325,8 @@ export function AppSidebar({ userEmail }: { userEmail: string | null }) {  const
             </SidebarMenu>
           </SidebarGroup>
         ))}
+        <DirectMessagesGroup directory={directory} userEmail={userEmail} />
+        <GroupsGroup threads={threads} directory={directory} />
       </SidebarContent>
 
       <SidebarFooter>

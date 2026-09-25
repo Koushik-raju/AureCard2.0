@@ -1930,16 +1930,54 @@ export async function removeMember(id: string): Promise<{ error?: string }> {
 // ---------- Direct messages ----------
 
 export async function sendDirectMessage(input: {
-  recipientEmail: string;
+  recipientEmail?: string;
+  threadId?: string;
   text: string;
 }): Promise<{ id?: string; error?: string }> {
   const text = input.text.trim().slice(0, 2000);
   if (!text) return { error: "Write a message first." };
-  const recipient = input.recipientEmail.trim().toLowerCase();
+  const id = newId("dm");
+
+  // Group thread message: membership is verified, recipient stays empty.
+  if (input.threadId) {
+    if (!isDbConfigured) {
+      const user = await getCurrentUser();
+      const sender = (user?.email ?? "you").toLowerCase();
+      const thread = memory.groupThreads.find((t) => t.id === input.threadId);
+      if (!thread) return { error: "Not found." };
+      if (!thread.memberEmails.some((e) => e.toLowerCase() === sender)) {
+        return { error: "Not a member of this group." };
+      }
+      memory.directMessages.push({
+        id,
+        senderEmail: sender,
+        recipientEmail: "",
+        text,
+        createdAt: new Date().toISOString(),
+        threadId: input.threadId,
+      });
+      revalidatePath("/messages");
+      return { id };
+    }
+    const { client, user } = await requireClient();
+    const sender = (user.email ?? "").toLowerCase();
+    if (!sender) return { error: "Not signed in." };
+    const { error } = await client.from("direct_messages").insert({
+      id,
+      sender_email: sender,
+      recipient_email: "",
+      text,
+      thread_id: input.threadId,
+    });
+    if (error) return { error: error.message };
+    revalidatePath("/messages");
+    return { id };
+  }
+
+  const recipient = (input.recipientEmail ?? "").trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
     return { error: "Invalid recipient." };
   }
-  const id = newId("dm");
   if (!isDbConfigured) {
     const user = await getCurrentUser();
     memory.directMessages.push({
@@ -1960,6 +1998,45 @@ export async function sendDirectMessage(input: {
     sender_email: sender,
     recipient_email: recipient,
     text,
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/messages");
+  return { id };
+}
+
+export async function createGroupThread(input: {
+  name: string;
+  emails: string[];
+}): Promise<{ id?: string; error?: string }> {
+  const name = input.name.trim().slice(0, 80);
+  if (!name) return { error: "Give the group a name." };
+  const emails = [...new Set(
+    (input.emails ?? []).map((e) => e.trim().toLowerCase()).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))
+  )];
+  if (emails.length === 0) return { error: "Pick at least one person." };
+  const id = newId("grp");
+  if (!isDbConfigured) {
+    const user = await getCurrentUser();
+    const me = (user?.email ?? "").toLowerCase();
+    if (me && !emails.includes(me)) emails.push(me);
+    memory.groupThreads.push({
+      id,
+      name,
+      memberEmails: emails,
+      createdBy: user?.email ?? "",
+      createdAt: new Date().toISOString(),
+    });
+    revalidatePath("/messages");
+    return { id };
+  }
+  const { client, user } = await requireClient();
+  const me = (user.email ?? "").toLowerCase();
+  if (me && !emails.includes(me)) emails.push(me);
+  const { error } = await client.from("group_threads").insert({
+    id,
+    name,
+    member_emails: emails,
+    created_by: user.email ?? "",
   });
   if (error) return { error: error.message };
   revalidatePath("/messages");

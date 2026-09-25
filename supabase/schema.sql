@@ -193,6 +193,20 @@ alter table documents drop constraint if exists documents_source_doc_id_fkey;
 alter table documents add constraint documents_source_doc_id_fkey foreign key (source_doc_id) references documents(id) on delete set null;
 create index if not exists idx_docs_source_doc on documents(source_doc_id);
 
+-- ---------- Group threads (named multi-person conversations) ----------
+
+create table if not exists group_threads (
+  id text primary key,
+  name text not null,
+  member_emails text[] not null default '{}',
+  created_by text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_group_threads_created on group_threads(created_at);
+
+alter table direct_messages add column if not exists thread_id text;
+
 -- ---------- Direct messages (simple 1:1 threads) ----------
 
 create table if not exists direct_messages (
@@ -259,6 +273,7 @@ alter table document_blocks enable row level security;
 alter table document_attachments enable row level security;
 alter table members enable row level security;
 alter table direct_messages enable row level security;
+alter table group_threads enable row level security;
 
 drop policy if exists "workspace_select" on spaces;
 create policy "workspace_select" on spaces for select using (auth.role() = 'authenticated');
@@ -287,11 +302,18 @@ begin
   end loop;
 end $$;
 -- Direct messages are private: only sender and recipient can read or send.
+-- Group messages are visible to thread members.
 drop policy if exists "dm_select" on direct_messages;
 create policy "dm_select" on direct_messages for select using (
   auth.role() = 'authenticated' and (
     lower(sender_email) = lower(auth.jwt() ->> 'email') or
-    lower(recipient_email) = lower(auth.jwt() ->> 'email')
+    lower(recipient_email) = lower(auth.jwt() ->> 'email') or
+    thread_id in (
+      select gt.id from group_threads gt
+      where lower(auth.jwt() ->> 'email') = any (
+        select lower(unnest(gt.member_emails))
+      )
+    )
   )
 );
 drop policy if exists "dm_insert" on direct_messages;
@@ -300,6 +322,27 @@ create policy "dm_insert" on direct_messages for insert with check (
     lower(sender_email) = lower(auth.jwt() ->> 'email') or
     lower(recipient_email) = lower(auth.jwt() ->> 'email')
   )
+);
+drop policy if exists "dm_thread_insert" on direct_messages;
+create policy "dm_thread_insert" on direct_messages for insert with check (
+  auth.role() = 'authenticated' and thread_id in (
+    select gt.id from group_threads gt
+    where lower(auth.jwt() ->> 'email') = any (
+      select lower(unnest(gt.member_emails))
+    )
+  )
+);
+drop policy if exists "group_select" on group_threads;
+create policy "group_select" on group_threads for select using (
+  auth.role() = 'authenticated' and (
+    lower(auth.jwt() ->> 'email') = any (
+      select lower(unnest(group_threads.member_emails))
+    )
+  )
+);
+drop policy if exists "group_insert" on group_threads;
+create policy "group_insert" on group_threads for insert with check (
+  auth.role() = 'authenticated'
 );
 
 -- ---------- File storage ----------
@@ -328,7 +371,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['spaces','projects','tasks','task_comments','task_items','folders','lists','task_activity','task_attachments','document_attachments','members','direct_messages']
+  foreach t in array array['spaces','projects','tasks','task_comments','task_items','folders','lists','task_activity','task_attachments','document_attachments','members','direct_messages','group_threads']
   loop
     if not exists (
       select 1 from pg_publication_tables

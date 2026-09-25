@@ -128,6 +128,17 @@ export type DirectMessage = {
   recipientEmail: string;
   text: string;
   createdAt: string;
+  /** Set for group-thread messages instead of a 1:1 recipient. */
+  threadId?: string;
+};
+
+/** A named multi-person conversation. */
+export type GroupThread = {
+  id: string;
+  name: string;
+  memberEmails: string[];
+  createdBy?: string;
+  createdAt?: string;
 };
 
 export type DocumentRef = {

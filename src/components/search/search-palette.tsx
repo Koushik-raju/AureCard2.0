@@ -53,8 +53,23 @@ function useMounted(): boolean {
   );
 }
 
-export function SearchPalette() {
-  const router = useRouter();
+/** Visible header trigger that opens the palette (for pointer users). */
+export function SearchTriggerButton() {
+  return (
+    <button
+      type="button"
+      onClick={() => window.dispatchEvent(new Event("atlas:open-search"))}
+      className="hidden h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-transparent px-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex sm:max-w-xs"
+    >
+      <span className="truncate">Search…</span>
+      <kbd className="ml-auto shrink-0 rounded border border-border bg-muted px-1 text-[10px]">
+        ⌘K
+      </kbd>
+    </button>
+  );
+}
+
+export function SearchPalette() {  const router = useRouter();
   const mounted = useMounted();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -82,8 +97,13 @@ export function SearchPalette() {
         close();
       }
     };
+    const onOpenEvent = () => setOpen(true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("atlas:open-search", onOpenEvent);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("atlas:open-search", onOpenEvent);
+    };
   }, [open, close]);
 
   useEffect(() => {
