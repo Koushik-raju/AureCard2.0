@@ -1,6 +1,9 @@
 import { ContentWrap } from "@/components/layout/content-wrap";
 import { PageHeader } from "@/components/layout/page-header";
-import { MessagesExplorer } from "@/components/messages/messages-explorer";
+import {
+  MessagesPeople,
+  MessagesThread,
+} from "@/components/messages/messages-explorer";
 import { getCurrentUser } from "@/app/actions/auth";
 import {
   getConversation,
@@ -26,19 +29,29 @@ export default async function MessagesPage({
     me && peer ? await getConversation(me, peer.email) : [];
 
   return (
-    <ContentWrap>
-      <PageHeader
-        eyebrow="Collaboration"
-        title="Messages"
-        description="Simple 1:1 threads with people in your directory."
-      />
-      <MessagesExplorer
+    <div className="flex">
+      <MessagesPeople
         me={me}
         directory={directory}
         peerEmail={peer?.email ?? null}
-        initialThread={thread}
         recent={mine}
+        panel
       />
-    </ContentWrap>
+      <div className="min-w-0 flex-1">
+        <ContentWrap>
+          <PageHeader
+            eyebrow="Collaboration"
+            title="Messages"
+            description="Simple 1:1 threads with people in your directory."
+          />
+          <MessagesThread
+            me={me}
+            directory={directory}
+            peerEmail={peer?.email ?? null}
+            initialThread={thread}
+          />
+        </ContentWrap>
+      </div>
+    </div>
   );
 }

@@ -104,92 +104,63 @@ export function MessagesExplorer({
   initialThread: DirectMessage[];
   recent: DirectMessage[];
 }) {
-  // Unread dots from storage; the open thread never shows one.
-  // Writes happen in click handlers + mount only — never during render.
-  const visits = useSyncExternalStore(
-    subscribeVisits,
-    readStoredVisits,
-    () => ({}) as Record<string, number>
+  return (
+    <div className="flex">
+      <MessagesPeople
+        me={me}
+        directory={directory}
+        peerEmail={peerEmail}
+        recent={recent}
+        panel
+      />
+      <div className="min-w-0 flex-1">
+        <MessagesThread
+          me={me}
+          directory={directory}
+          peerEmail={peerEmail}
+          initialThread={initialThread}
+        />
+      </div>
+    </div>
   );
-  const openKey = (peerEmail ?? "").toLowerCase();
-  useEffect(() => {
-    if (peerEmail) markVisited(peerEmail);
-  }, [peerEmail]);
+}
 
+export function MessagesThread({
+  me,
+  directory,
+  peerEmail,
+  initialThread,
+}: {
+  me: string;
+  directory: WorkspaceMember[];
+  peerEmail: string | null;
+  initialThread: DirectMessage[];
+}) {
+  const router = useRouter();
   const peer = directory.find((d) => d.email.toLowerCase() === (peerEmail ?? "").toLowerCase());
 
-  const latestByPeer = useMemo(() => {
-    const map = new Map<string, DirectMessage>();
-    for (const m of [...recent].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
-      const other = otherParty(m, me).toLowerCase();
-      if (!map.has(other)) map.set(other, m);
-    }
-    return map;
-  }, [recent, me]);
-
   return (
-    <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-      <nav aria-label="People" className="rounded-xl border border-border bg-card p-2">
-        {directory.length === 0 ? (
-          <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-            Nobody yet — invite people on the{" "}
-            <Link href="/org" className="underline">
-              Organization
-            </Link>{" "}
-            page.
-          </p>
-        ) : (
-          <ul className="space-y-0.5">
-            {directory.map((d) => {
-              const key = d.email.toLowerCase();
-              const last = latestByPeer.get(key);
-              const unread =
-                !!last &&
-                key !== openKey &&
-                last.senderEmail.toLowerCase() !== me &&
-                Date.parse(last.createdAt) > (visits[key] ?? 0);
-              const selected = key === (peerEmail ?? "").toLowerCase();
-              return (
-                <li key={d.id}>
-                  <Link
-                    href={`/messages?to=${encodeURIComponent(d.email)}`}
-                    onClick={() => markVisited(d.email)}
-                    className={cn(
-                      "flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      selected && "bg-muted"
-                    )}
-                  >
-                    <span className="relative shrink-0">
-                      <AssigneeAvatar name={d.name} size="md" />
-                      {unread ? (
-                        <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-card bg-primary" aria-label="Unread" />
-                      ) : null}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-baseline gap-1.5">
-                        <span className="truncate text-sm font-medium">{d.name}</span>
-                        {d.email.toLowerCase() === me ? (
-                          <span className="shrink-0 text-[11px] text-muted-foreground">(you)</span>
-                        ) : null}
-                        {last ? (
-                          <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                            {formatRelativeTime(last.createdAt)}
-                          </span>
-                        ) : null}
-                      </span>
-                      <span className={cn("block truncate text-[13px]", last ? "text-muted-foreground" : "text-muted-foreground/70")}>
-                        {last ? last.text : d.email}
-                      </span>
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </nav>
-
-      <section aria-label="Conversation" className="flex min-h-[50vh] flex-col rounded-xl border border-border bg-card">
+      <section aria-label="Conversation" className="flex min-h-[50vh] min-w-0 flex-1 flex-col">
+        <div className="border-b border-border px-4 py-2 lg:hidden">
+          <label htmlFor="dm-peer" className="sr-only">
+            Choose person
+          </label>
+          <select
+            id="dm-peer"
+            value={peer?.email ?? ""}
+            onChange={(e) => {
+              if (e.target.value) router.push(`/messages?to=${encodeURIComponent(e.target.value)}`);
+            }}
+            className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="">Choose person…</option>
+            {directory.map((d) => (
+              <option key={d.id} value={d.email}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </div>
         {!peer ? (
           <p className="m-auto px-6 py-16 text-center text-sm text-muted-foreground">
             Pick someone to start messaging.
@@ -203,7 +174,122 @@ export function MessagesExplorer({
           />
         )}
       </section>
-    </div>
+  );
+}
+
+export function MessagesPeople({
+  me,
+  directory,
+  peerEmail,
+  recent,
+  panel,
+}: {
+  me: string;
+  directory: WorkspaceMember[];
+  peerEmail: string | null;
+  recent: DirectMessage[];
+  /** Render as a full-height second-sidebar panel instead of a card. */
+  panel?: boolean;
+}) {
+  // Unread dots from storage; the open thread never shows one.
+  // Writes happen in click handlers + mount only — never during render.
+  const storedVisits = useSyncExternalStore(
+    subscribeVisits,
+    readStoredVisits,
+    () => ({}) as Record<string, number>
+  );
+  const visitMap = storedVisits;
+  const open = (peerEmail ?? "").toLowerCase();
+  useEffect(() => {
+    if (peerEmail) markVisited(peerEmail);
+  }, [peerEmail]);
+  const latestByPeer = useMemo(() => {
+    const map = new Map<string, DirectMessage>();
+    for (const m of [...recent].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+      const other = otherParty(m, me).toLowerCase();
+      if (!map.has(other)) map.set(other, m);
+    }
+    return map;
+  }, [recent, me]);
+
+  const list = (
+    <>
+      {directory.length === 0 ? (
+        <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+          Nobody yet — invite people on the{" "}
+          <Link href="/org" className="underline">
+            Organization
+          </Link>{" "}
+          page.
+        </p>
+      ) : (
+        <ul className="space-y-0.5">
+          {directory.map((d) => {
+            const key = d.email.toLowerCase();
+            const last = latestByPeer.get(key);
+            const unread =
+              !!last &&
+                key !== open &&
+              last.senderEmail.toLowerCase() !== me &&
+                Date.parse(last.createdAt) > (visitMap[key] ?? 0);
+            const selected = key === (peerEmail ?? "").toLowerCase();
+            return (
+              <li key={d.id}>
+                <Link
+                  href={`/messages?to=${encodeURIComponent(d.email)}`}
+                  onClick={() => markVisited(d.email)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    selected && "bg-muted"
+                  )}
+                >
+                  <span className="relative shrink-0">
+                    <AssigneeAvatar name={d.name} size="md" />
+                    {unread ? (
+                      <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-card bg-primary" aria-label="Unread" />
+                    ) : null}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-baseline gap-1.5">
+                      <span className="truncate text-sm font-medium">{d.name}</span>
+                      {d.email.toLowerCase() === me ? (
+                        <span className="shrink-0 text-[11px] text-muted-foreground">(you)</span>
+                      ) : null}
+                      {last ? (
+                        <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                          {formatRelativeTime(last.createdAt)}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className={cn("block truncate text-[13px]", last ? "text-muted-foreground" : "text-muted-foreground/70")}>
+                      {last ? last.text : d.email}
+                    </span>
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </>
+  );
+
+  if (!panel) {
+    return (
+      <nav aria-label="People" className="rounded-xl border border-border bg-card p-2">
+        {list}
+      </nav>
+    );
+  }
+  return (
+    <aside aria-label="People" className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-r border-border bg-card lg:flex">
+      <div className="px-3 pb-1 pt-3">
+        <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          People
+        </span>
+      </div>
+      <nav className="flex-1 px-2 pb-3">{list}</nav>
+    </aside>
   );
 }
 
